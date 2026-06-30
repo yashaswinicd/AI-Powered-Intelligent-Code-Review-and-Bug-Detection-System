@@ -1,0 +1,14 @@
+from config.settings import (
+    SECRET_KEY,
+    DEBUG,
+    HOST,
+    PORT,
+    UPLOAD_DIR,
+    ALLOWED_EXTENSIONS,
+    MODEL_PATH,
+    VECTORIZER_PATH,
+    OUTPUT_FOLDER,
+    SUPPORTED_LANGUAGES,
+    BUG_THRESHOLD,
+    SEVERITY_LEVELS
+)

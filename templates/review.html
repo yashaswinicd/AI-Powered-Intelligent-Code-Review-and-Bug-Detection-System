@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Code Review - AI Code Review System</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+<style>
+.review-container{max-width:1200px;margin:2rem auto;padding:0 2rem}
+.review-header{text-align:center;margin-bottom:2rem}
+.review-header h1{font-size:2rem;color:#fff}
+.review-header p{color:#a0b4c8}
+.tab-buttons{display:flex;gap:1rem;margin-bottom:1.5rem;justify-content:center}
+.tab-btn{padding:.7rem 2rem;border-radius:8px;border:2px solid #64c8ff;background:transparent;color:#64c8ff;cursor:pointer}
+.tab-btn.active,.tab-btn:hover{background:#64c8ff;color:#0a0e1a;font-weight:600}
+.input-section{background:rgba(255,255,255,.04);border:1px solid rgba(100,200,255,.2);border-radius:12px;padding:2rem;margin-bottom:1.5rem}
+.code-textarea{width:100%;height:300px;background:#0d1117;border:1px solid rgba(100,200,255,.2);border-radius:8px;color:#e0e6f0;font-family:monospace;padding:1rem;resize:vertical}
+.upload-area{border:2px dashed rgba(100,200,255,.4);border-radius:12px;padding:3rem;text-align:center;cursor:pointer;display:none}
+.upload-area.active-tab{display:block}
+.upload-area.drag-over{border-color:#64c8ff;background:rgba(100,200,255,.1)}
+.upload-area i{font-size:3rem;color:#64c8ff;margin-bottom:1rem}
+#fileInput{display:none}
+.analyze-btn{width:100%;padding:1rem;background:linear-gradient(135deg,#64c8ff,#0080ff);color:#fff;border:none;border-radius:8px;font-size:1.1rem;font-weight:600;cursor:pointer}
+.analyze-btn:disabled{opacity:.6}
+.progress-loader{display:none;background:rgba(255,255,255,.04);border:1px solid rgba(100,200,255,.2);border-radius:12px;padding:2rem;margin:1.5rem 0;text-align:center}
+.progress-step{display:flex;align-items:center;gap:1rem;padding:.7rem 1rem;border-radius:8px;background:rgba(0,0,0,.2);color:#a0b4c8;margin-top:.6rem}
+.progress-step.active{background:rgba(100,200,255,.1);color:#64c8ff}
+.progress-step.done{background:rgba(68,255,136,.1);color:#44ff88}
+.results-section{display:none;margin-top:2rem}
+.score-card{background:rgba(255,255,255,.04);border:1px solid rgba(100,200,255,.2);border-radius:12px;padding:2rem;text-align:center;margin-bottom:1.5rem}
+.score-number{font-size:4rem;font-weight:800;color:#64c8ff}
+.score-grade{font-size:1.3rem;color:#fff;margin:.5rem 0}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem}
+.stat-card{background:rgba(255,255,255,.04);border:1px solid rgba(100,200,255,.15);border-radius:10px;padding:1.2rem;text-align:center}
+.stat-card .stat-number{font-size:2rem;font-weight:700;color:#64c8ff}
+.stat-card .stat-label{color:#a0b4c8;font-size:.85rem}
+.issues-section{background:rgba(255,255,255,.04);border:1px solid rgba(100,200,255,.15);border-radius:12px;padding:1.5rem;margin-bottom:1.5rem}
+.issue-item{background:rgba(0,0,0,.3);border-left:4px solid #64c8ff;border-radius:6px;padding:1rem;margin-bottom:.8rem}
+.issue-item.critical{border-color:#ff4444}
+.issue-item.high{border-color:#ff8800}
+.issue-item.medium{border-color:#ffcc00}
+.issue-item.low{border-color:#44ff88}
+.issue-header{display:flex;justify-content:space-between;margin-bottom:.5rem}
+.severity-badge{padding:.2rem .8rem;border-radius:20px;font-size:.75rem;font-weight:600}
+.badge-critical{background:#ff4444;color:#fff}
+.badge-high{background:#ff8800;color:#fff}
+.badge-medium{background:#ffcc00;color:#0a0e1a}
+.badge-low{background:#44ff88;color:#0a0e1a}
+.issue-message{color:#a0b4c8;font-size:.9rem}
+.issue-suggestion{color:#64c8ff;font-size:.85rem}
+.issue-line{color:#6272a4;font-size:.8rem}
+.ai-suggestion-box{background:rgba(100,200,255,.05);border:1px solid rgba(100,200,255,.2);border-radius:6px;padding:.8rem;margin-top:.5rem}
+.ai-suggestion-box .why{color:#ffd93d;font-size:.85rem}
+.ai-suggestion-box .fix{color:#44ff88;font-size:.85rem;font-family:monospace;background:rgba(0,0,0,.3);padding:.4rem;border-radius:4px;margin-top:.3rem}
+.download-btn{width:100%;padding:1rem;background:transparent;color:#64c8ff;border:2px solid #64c8ff;border-radius:8px;font-weight:600;cursor:pointer;margin-top:1rem}
+.no-issues{text-align:center;color:#44ff88;padding:1rem}
+</style>
+</head>
+<body>
+<nav class="navbar">
+<div class="nav-brand"><i class="fas fa-robot"></i><span>AI Code Review</span></div>
+<div class="nav-links"><a href="/">Home</a><a href="/review" class="active">Review</a><a href="/dashboard">Dashboard</a></div>
+</nav>
+
+<div class="review-container">
+<div class="review-header">
+<h1><i class="fas fa-search-plus"></i> Code Review</h1>
+<p>Paste your code or upload a file to get instant AI analysis</p>
+</div>
+
+<div class="tab-buttons">
+<button class="tab-btn active" onclick="switchTab('paste',event)"><i class="fas fa-paste"></i> Paste Code</button>
+<button class="tab-btn" onclick="switchTab('upload',event)"><i class="fas fa-upload"></i> Upload File</button>
+</div>
+
+<div class="input-section" id="pasteTab">
+<textarea class="code-textarea" id="codeInput" placeholder="# Paste your code here..."></textarea>
+</div>
+
+<div class="upload-area" id="uploadTab" onclick="document.getElementById('fileInput').click()" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+<i class="fas fa-cloud-upload-alt"></i>
+<h3>Drag & Drop your file here</h3>
+<p>or click to browse</p>
+<p id="uploadedFileName" style="color:#64c8ff;margin-top:1rem;"></p>
+<input type="file" id="fileInput" accept=".py,.java,.cpp,.c,.js,.txt" onchange="handleFileSelect(this)">
+</div>
+
+<button class="analyze-btn" id="analyzeBtn" onclick="analyzeCode()"><i class="fas fa-play"></i> Analyze Code</button>
+
+<div class="progress-loader" id="progressLoader">
+<h3 style="color:#64c8ff;">🤖 AI Analyzing Your Code...</h3>
+<div id="step1" class="progress-step"><span>📝</span><span>Parsing Code...</span></div>
+<div id="step2" class="progress-step"><span>🐛</span><span>Detecting Bugs...</span></div>
+<div id="step3" class="progress-step"><span>🔒</span><span>Checking Security...</span></div>
+<div id="step4" class="progress-step"><span>🤖</span><span>Running ML Model...</span></div>
+<div id="step5" class="progress-step"><span>📄</span><span>Generating Report...</span></div>
+</div>
+
+<div class="results-section" id="results">
+<div class="score-card">
+<div class="score-number" id="scoreNum">0</div>
+<div style="color:#a0b4c8">/ 100</div>
+<div class="score-grade" id="gradeText"></div>
+</div>
+<div class="stats-grid">
+<div class="stat-card"><div class="stat-number" id="totalLines">0</div><div class="stat-label">Total Lines</div></div>
+<div class="stat-card"><div class="stat-number" id="totalBugs">0</div><div class="stat-label">Bugs Found</div></div>
+<div class="stat-card"><div class="stat-number" id="totalSecurity">0</div><div class="stat-label">Security Issues</div></div>
+<div class="stat-card"><div class="stat-number" id="totalIssues">0</div><div class="stat-label">Total Issues</div></div>
+</div>
+<div class="issues-section">
+<h3><i class="fas fa-bug"></i> Detected Issues</h3>
+<div id="issuesList"></div>
+</div>
+<button class="download-btn" onclick="downloadReport()"><i class="fas fa-download"></i> Download Full Report</button>
+</div>
+</div>
+
+<footer class="footer" style="margin-top:3rem;">
+<p><i class="fas fa-robot"></i> AI Code Review System | Made with ❤️ by Yashaswini C D</p>
+</footer>
+
+<script>
+let currentReport='', currentTab='paste', uploadedFile=null;
+
+const aiSuggestions={
+'Hardcoded Password':{why:'Passwords in source code can be exposed.',fix:'password = os.getenv("PASSWORD")'},
+'Empty Except Block':{why:'Silent errors hide real problems.',fix:'except Exception as e:\n    logging.error(e)'},
+'Syntax Error':{why:'Prevents code from running.',fix:'Check indentation/brackets.'},
+'Division By Zero':{why:'Causes runtime crashes.',fix:'if divisor != 0: result = value/divisor'},
+'Naming Convention':{why:'Reduces readability.',fix:'Use snake_case naming.'},
+'Missing Docstring':{why:'Hard to maintain code.',fix:'def func():\n    """Description."""'}
+};
+
+function switchTab(tab,e){
+currentTab=tab;
+document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+if(e)e.target.classList.add('active');
+document.getElementById('pasteTab').style.display=tab==='paste'?'block':'none';
+document.getElementById('uploadTab').classList.toggle('active-tab',tab==='upload');
+}
+
+function handleDragOver(e){e.preventDefault();document.getElementById('uploadTab').classList.add('drag-over');}
+function handleDragLeave(e){document.getElementById('uploadTab').classList.remove('drag-over');}
+function handleDrop(e){
+e.preventDefault();
+document.getElementById('uploadTab').classList.remove('drag-over');
+const f=e.dataTransfer.files[0];
+if(f){uploadedFile=f;document.getElementById('uploadedFileName').textContent='✅ '+f.name;}
+}
+function handleFileSelect(input){
+uploadedFile=input.files[0];
+if(uploadedFile)document.getElementById('uploadedFileName').textContent='✅ '+uploadedFile.name;
+}
+
+async function runSteps(){
+for(let i=1;i<=5;i++){
+const s=document.getElementById('step'+i);
+s.classList.add('active');
+await new Promise(r=>setTimeout(r,500));
+s.classList.remove('active');
+s.classList.add('done');
+}
+}
+
+async function analyzeCode(){
+const btn=document.getElementById('analyzeBtn');
+const loader=document.getElementById('progressLoader');
+const results=document.getElementById('results');
+btn.disabled=true;loader.style.display='block';results.style.display='none';
+for(let i=1;i<=5;i++)document.getElementById('step'+i).classList.remove('active','done');
+
+const progress=runSteps();
+try{
+let response;
+if(currentTab==='paste'){
+const code=document.getElementById('codeInput').value;
+if(!code.trim()){alert('Paste code first!');btn.disabled=false;loader.style.display='none';return;}
+response=await fetch('/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,filename:'code.py'})});
+}else{
+if(!uploadedFile){alert('Upload file first!');btn.disabled=false;loader.style.display='none';return;}
+const fd=new FormData();fd.append('file',uploadedFile);
+response=await fetch('/upload',{method:'POST',body:fd});
+}
+const data=await response.json();
+await progress;
+if(data.success){displayResults(data);currentReport=data.text_report;}
+else alert('Error: '+data.error);
+}catch(err){alert('Something went wrong!');}
+btn.disabled=false;loader.style.display='none';
+}
+
+function displayResults(data){
+document.getElementById('scoreNum').textContent=data.score;
+document.getElementById('gradeText').textContent=data.grade;
+document.getElementById('totalLines').textContent=data.stats.total_lines;
+document.getElementById('totalBugs').textContent=data.bugs.total_bugs;
+document.getElementById('totalSecurity').textContent=data.security.total_vulnerabilities;
+document.getElementById('totalIssues').textContent=data.total_issues;
+
+const list=document.getElementById('issuesList');
+list.innerHTML='';
+const all=[...(data.all_issues||[]),...(data.security.vulnerabilities||[])];
+
+if(all.length===0){
+list.innerHTML='<div class="no-issues">✅ No issues found! Excellent code!</div>';
+}else{
+all.forEach(issue=>{
+const sev=issue.severity.toLowerCase();
+const ai=aiSuggestions[issue.type];
+const aiBox=ai?`<div class="ai-suggestion-box"><div class="why">❓ ${ai.why}</div><div class="fix">✅ ${ai.fix}</div></div>`:'';
+list.innerHTML+=`<div class="issue-item ${sev}">
+<div class="issue-header"><span>${issue.type}</span><span class="severity-badge badge-${sev}">${issue.severity}</span></div>
+<div class="issue-message">${issue.message}</div>
+<div class="issue-suggestion">💡 ${issue.suggestion}</div>
+<div class="issue-line">📍 Line: ${issue.line}</div>
+${aiBox}</div>`;
+});
+}
+document.getElementById('results').style.display='block';
+document.getElementById('results').scrollIntoView({behavior:'smooth'});
+}
+
+function downloadReport(){
+if(!currentReport)return;
+const blob=new Blob([currentReport],{type:'text/plain'});
+const url=URL.createObjectURL(blob);
+const a=document.createElement('a');
+a.href=url;a.download='code_review_report.txt';a.click();
+}
+</script>
+</body>
+</html>

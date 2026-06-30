@@ -1,0 +1,9 @@
+{
+    "accuracy": 1.0,
+    "total_samples": 20,
+    "train_samples": 16,
+    "test_samples": 4,
+    "model": "Logistic Regression",
+    "vectorizer": "TF-IDF",
+    "max_features": 5000
+}

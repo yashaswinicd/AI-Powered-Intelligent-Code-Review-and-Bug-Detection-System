@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Code Review System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+
+    <!-- NAVBAR -->
+    <nav class="navbar">
+        <div class="nav-brand">
+            <i class="fas fa-robot"></i>
+            <span>AI Code Review</span>
+        </div>
+        <div class="nav-links">
+            <a href="/" class="active">Home</a>
+            <a href="/review">Review</a>
+            <a href="/dashboard">Dashboard</a>
+        </div>
+    </nav>
+
+    <!-- HERO SECTION -->
+    <section class="hero">
+        <div class="hero-content">
+            <h1>
+                <i class="fas fa-code"></i>
+                AI-Powered Intelligent
+                <span class="highlight">Code Review</span>
+                & Bug Detection System
+            </h1>
+            <p class="hero-subtitle">
+                Upload your code and get instant AI-powered analysis,
+                bug detection, security checks and quality score!
+            </p>
+            <div class="hero-buttons">
+                <a href="/review" class="btn-primary">
+                    <i class="fas fa-play"></i>
+                    Start Review
+                </a>
+                <a href="/dashboard" class="btn-secondary">
+                    <i class="fas fa-chart-bar"></i>
+                    Dashboard
+                </a>
+            </div>
+        </div>
+        <div class="hero-image">
+            <div class="code-animation">
+                <div class="code-line">
+                    <span class="keyword">def</span>
+                    <span class="function"> analyze_code</span>
+                    <span class="bracket">()</span>:
+                </div>
+                <div class="code-line indent">
+                    <span class="keyw

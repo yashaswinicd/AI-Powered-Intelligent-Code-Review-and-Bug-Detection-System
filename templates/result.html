@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Result - AI Code Review</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <i class="fas fa-robot"></i>
+            <span>AI Code Review</span>
+        </div>
+        <div class="nav-links">
+            <a href="/">Home</a>
+            <a href="/review">Review</a>
+            <a href="/dashboard">Dashboard</a>
+        </div>
+    </nav>
+
+    <div style="text-align:center; padding:5rem 2rem;">
+        <i class="fas fa-check-circle"
+           style="font-size:4rem; color:#64c8ff;"></i>
+        <h1 style="color:#ffffff; margin:1rem 0;">
+            Analysis Complete!
+        </h1>
+        <p style="color:#a0b4c8; margin-bottom:2rem;">
+            Your code has been analyzed successfully.
+        </p>
+        <a href="/review"
+           style="background:linear-gradient(135deg,#64c8ff,#0080ff);
+                  color:white; padding:1rem 2rem; border-radius:8px;
+                  text-decoration:none; font-weight:600;">
+            <i class="fas fa-redo"></i> Analyze Another Code
+        </a>
+    </div>
+
+    <footer class="footer">
+        <p>
+            <i class="fas fa-robot"></i>
+            AI Code Review System | Made with ❤️ by Yashaswini C D
+        </p>
+    </footer>
+</body>
+</html>
