@@ -105,7 +105,7 @@
 ```bash
 # Clone the repository
 git clone https://github.com/yashaswinicd/AI-Powered-Code-Review-System.git
-cd AI-Powered-Code-Review-System
+cd AI-Powered-Code-Review-and-bug-detection-System
 
 # Create virtual environment
 python -m venv venv
