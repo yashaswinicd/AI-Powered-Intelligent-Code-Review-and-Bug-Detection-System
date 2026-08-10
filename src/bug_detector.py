@@ -29,7 +29,7 @@ class BugDetector:
         return bugs
 
     # =============================
-    # Check Undefined Variables
+    # Check Syntax Errors
     # =============================
     def check_syntax_errors(self, code):
         bugs = []
@@ -108,6 +108,80 @@ class BugDetector:
         return bugs
 
     # =============================
+    # Check Division by Zero
+    # =============================
+    def check_division_by_zero(self, code):
+        bugs = []
+        try:
+            tree = ast.parse(code)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Div, ast.FloorDiv, ast.Mod)):
+                    if isinstance(node.right, ast.Constant) and node.right.value == 0:
+                        bugs.append({
+                            'type': 'Division by Zero',
+                            'line': node.lineno,
+                            'severity': 'CRITICAL',
+                            'message': 'Division by zero detected — this will crash the program',
+                            'suggestion': 'Add a check to ensure the denominator is not zero before dividing'
+                        })
+        except:
+            pass
+        return bugs
+
+    # =============================
+    # Check Undefined Variables
+    # =============================
+    def check_undefined_variables(self, code):
+        bugs = []
+        try:
+            tree = ast.parse(code)
+        except:
+            return bugs
+
+        builtins_set = set(dir(__builtins__)) if not isinstance(__builtins__, dict) else set(__builtins__.keys())
+
+        defined_names = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        defined_names.add(target.id)
+            elif isinstance(node, ast.AugAssign):
+                if isinstance(node.target, ast.Name):
+                    defined_names.add(node.target.id)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                defined_names.add(node.name)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    for arg in node.args.args:
+                        defined_names.add(arg.arg)
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                for alias in node.names:
+                    defined_names.add(alias.asname or alias.name.split('.')[0])
+            elif isinstance(node, ast.For):
+                if isinstance(node.target, ast.Name):
+                    defined_names.add(node.target.id)
+            elif isinstance(node, ast.With):
+                for item in node.items:
+                    if item.optional_vars and isinstance(item.optional_vars, ast.Name):
+                        defined_names.add(item.optional_vars.id)
+
+        seen = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+                if node.id not in defined_names and node.id not in builtins_set:
+                    key = (node.id, node.lineno)
+                    if key not in seen:
+                        seen.add(key)
+                        bugs.append({
+                            'type': 'Undefined Variable',
+                            'line': node.lineno,
+                            'severity': 'CRITICAL',
+                            'message': f'Variable "{node.id}" is used but never defined',
+                            'suggestion': f'Make sure "{node.id}" is defined/assigned before use'
+                        })
+        return bugs
+
+    # =============================
     # Main Detect Function
     # =============================
     def detect(self, code):
@@ -119,6 +193,8 @@ class BugDetector:
         self.bugs_found += self.check_long_functions(code)
         self.bugs_found += self.check_hardcoded_secrets(code)
         self.bugs_found += self.check_print_statements(code)
+        self.bugs_found += self.check_division_by_zero(code)
+        self.bugs_found += self.check_undefined_variables(code)
 
         # Summary
         summary = {
