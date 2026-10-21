@@ -1,3 +1,4 @@
+import ast
 import re
 
 from src.bug_detector import BugDetector
@@ -15,7 +16,6 @@ class DebuggingEngine:
     # =========================================================
 
     def add_fix(self, bug, old, new, description):
-
         self.fixes.append({
             "type": bug.get("type"),
             "line": bug.get("line"),
@@ -25,209 +25,106 @@ class DebuggingEngine:
         })
 
     # =========================================================
-    # COMBINED ANALYSIS
+    # ANALYZE CODE
     # =========================================================
 
     def analyze_all(self, code):
-
-        bug_result = BugDetector().detect(code)
-        security_result = SecurityChecker().check(code)
+        try:
+            bug_result = BugDetector().detect(code)
+        except Exception as exc:
+            return [{
+                "type": "Analysis Error",
+                "line": 1,
+                "severity": "high",
+                "message": str(exc)
+            }]
 
         normal_bugs = bug_result.get("bugs", [])
-        security_bugs = security_result.get(
-            "vulnerabilities",
-            []
-        )
 
-        return normal_bugs + security_bugs
+        try:
+            security_result = SecurityChecker().check(code)
+            security_bugs = security_result.get(
+                "vulnerabilities", []
+            )
+        except Exception as exc:
+            security_bugs = [{
+                "type": "Security Analysis Error",
+                "line": 1,
+                "severity": "high",
+                "message": str(exc)
+            }]
+
+        combined = []
+        seen = set()
+
+        for bug in normal_bugs + security_bugs:
+            key = (
+                bug.get("type"),
+                bug.get("line"),
+                bug.get("column"),
+                bug.get("message")
+            )
+
+            if key not in seen:
+                seen.add(key)
+                combined.append(bug)
+
+        return combined
+
+    # =========================================================
+    # VALIDATE PYTHON SYNTAX
+    # =========================================================
+
+    @staticmethod
+    def is_valid_python(code):
+        try:
+            ast.parse(code)
+            return True
+        except (SyntaxError, ValueError, TypeError):
+            return False
 
     # =========================================================
     # DIVISION BY ZERO
     # =========================================================
 
     def fix_division(self, code, bug):
-
-        lines = code.splitlines()
-        line = bug.get("line", 1)
-
-        if not 1 <= line <= len(lines):
-            return code
-
-        old = lines[line - 1]
-
-        new = re.sub(
-            r"([/%])\s*0\b",
-            r"\1 1",
-            old
-        )
-
-        if new == old:
-
-            match = re.search(
-                r"([/%])\s*(\w+)",
-                old
-            )
-
-            if match:
-
-                name = match.group(2)
-
-                new = re.sub(
-                    rf"([/%])\s*{re.escape(name)}\b",
-                    rf"\1 ({name} if {name} != 0 else 1)",
-                    old,
-                    count=1
-                )
-
-        if new != old:
-
-            lines[line - 1] = new
-
-            self.add_fix(
-                bug,
-                old,
-                new,
-                "Added zero-divisor protection."
-            )
-
-        return "\n".join(lines)
+        # Do not replace 0 with 1 or invent a different result.
+        # A correct fix depends on the intended program behavior.
+        return code
 
     # =========================================================
     # INDEX OUT OF RANGE
     # =========================================================
 
     def fix_index(self, code, bug):
-
-        lines = code.splitlines()
-        line = bug.get("line", 1)
-
-        if not 1 <= line <= len(lines):
-            return code
-
-        old = lines[line - 1]
-
-        match = re.search(
-            r"(\w+)\s*\[\s*(-?\d+)\s*\]",
-            old
-        )
-
-        if not match:
-            return code
-
-        name = match.group(1)
-        index = int(match.group(2))
-
-        list_match = re.search(
-            rf"{re.escape(name)}\s*=\s*\[(.*?)\]",
-            code
-        )
-
-        if not list_match:
-            return code
-
-        items = [
-            x for x in list_match.group(1).split(",")
-            if x.strip()
-        ]
-
-        if not items:
-            return code
-
-        safe = max(
-            0,
-            min(index, len(items) - 1)
-        )
-
-        new = re.sub(
-            rf"{re.escape(name)}\s*\[\s*{index}\s*\]",
-            f"{name}[{safe}]",
-            old,
-            count=1
-        )
-
-        if new != old:
-
-            lines[line - 1] = new
-
-            self.add_fix(
-                bug,
-                old,
-                new,
-                "Changed invalid index to a safe index."
-            )
-
-        return "\n".join(lines)
+        # Do not silently change the requested index to another
+        # element. That could return the wrong result.
+        return code
 
     # =========================================================
     # UNDEFINED VARIABLE
     # =========================================================
 
     def fix_undefined(self, code, bug):
-
-        lines = code.splitlines()
-        line = bug.get("line", 1)
-
-        if not 1 <= line <= len(lines):
-            return code
-
-        message = bug.get("message", "")
-
-        match = re.search(
-            r"Variable '([^']+)'",
-            message
-        )
-
-        if not match:
-            return code
-
-        wrong = match.group(1)
-
-        if wrong.endswith("_quantity"):
-
-            replacement = "quantity"
-
-        else:
-
-            return code
-
-        old = lines[line - 1]
-
-        new = re.sub(
-            rf"\b{re.escape(wrong)}\b",
-            replacement,
-            old,
-            count=1
-        )
-
-        if new != old:
-
-            lines[line - 1] = new
-
-            self.add_fix(
-                bug,
-                old,
-                new,
-                f"Replaced '{wrong}' with '{replacement}'."
-            )
-
-        return "\n".join(lines)
+        # Variable-name guessing can change program semantics.
+        # Leave unresolved until the intended name is known.
+        return code
 
     # =========================================================
     # SYNTAX ERROR
     # =========================================================
 
     def fix_syntax(self, code, bug):
-
         lines = code.splitlines()
-        line = bug.get("line", 1)
+        line_number = bug.get("line", 1)
 
-        if not 1 <= line <= len(lines):
+        if not 1 <= line_number <= len(lines):
             return code
 
-        old = lines[line - 1]
-        stripped = old.strip()
+        old_line = lines[line_number - 1]
+        stripped = old_line.strip()
 
-        keywords = (
+        block_keywords = (
             "if ",
             "elif ",
             "else",
@@ -238,127 +135,53 @@ class DebuggingEngine:
             "try",
             "except",
             "finally",
-            "with "
+            "with ",
         )
 
-        if (
-            stripped.startswith(keywords)
-            and not stripped.endswith(":")
-        ):
+        if not stripped.startswith(block_keywords):
+            return code
 
-            new = old.rstrip() + ":"
+        if stripped.endswith(":"):
+            return code
 
-            lines[line - 1] = new
+        candidate_lines = lines[:]
+        candidate_lines[line_number - 1] = (
+            old_line.rstrip() + ":"
+        )
+        candidate = "\n".join(candidate_lines)
 
-            self.add_fix(
-                bug,
-                old,
-                new,
-                "Added missing colon."
-            )
+        # Apply the fix only if the entire file parses afterward.
+        if not self.is_valid_python(candidate):
+            return code
 
-            return "\n".join(lines)
+        self.add_fix(
+            bug,
+            old_line,
+            candidate_lines[line_number - 1],
+            "Added a missing colon and validated Python syntax."
+        )
 
-        return code
+        return candidate
 
     # =========================================================
-    # EVAL SECURITY FIX
+    # EVAL / DANGEROUS FUNCTION
     # =========================================================
 
     def fix_eval(self, code, bug):
-
-        lines = code.splitlines()
-        line = bug.get("line", 1)
-
-        if not 1 <= line <= len(lines):
-            return code
-
-        old = lines[line - 1]
-
-        if "eval(" not in old:
-            return code
-
-        new = old.replace(
-            "eval(",
-            "ast.literal_eval("
-        )
-
-        # Make sure ast is imported
-        if "import ast" not in code:
-
-            new_lines = new.splitlines()
-
-            new_lines.insert(
-                0,
-                "import ast"
-            )
-
-            new = "\n".join(new_lines)
-
-        if new != code:
-
-            self.add_fix(
-                bug,
-                old,
-                new,
-                "Replaced unsafe eval() with ast.literal_eval()."
-            )
-
-        return new
-
-    # =========================================================
-    # DANGEROUS FUNCTION
-    # =========================================================
+        # Replacing eval() indiscriminately with literal_eval()
+        # can break legitimate expressions. Do not guess.
+        return code
 
     def fix_dangerous_function(self, code, bug):
-
-        lines = code.splitlines()
-        line = bug.get("line", 1)
-
-        if not 1 <= line <= len(lines):
-            return code
-
-        old = lines[line - 1]
-
-        # eval() can be safely converted when
-        # evaluating literal data.
-
-        if "eval(" in old:
-
-            return self.fix_eval(
-                code,
-                bug
-            )
-
-        # Do NOT automatically execute or preserve
-        # dangerous shell commands.
-
-        return code
+        return self.fix_eval(code, bug)
 
     # =========================================================
     # XSS
     # =========================================================
 
     def fix_xss(self, code, bug):
-
-        lines = code.splitlines()
-        line = bug.get("line", 1)
-
-        if not 1 <= line <= len(lines):
-            return code
-
-        old = lines[line - 1]
-
-        # Current XSS checker also flags eval().
-        # eval() is handled by fix_eval().
-
-        if "eval(" in old:
-
-            return self.fix_eval(
-                code,
-                bug
-            )
-
+        # XSS remediation depends on the web framework and
+        # whether data is used in HTML, attributes, URLs, etc.
         return code
 
     # =========================================================
@@ -366,7 +189,6 @@ class DebuggingEngine:
     # =========================================================
 
     def apply_fix(self, code, bug):
-
         bug_type = bug.get("type", "")
 
         if bug_type == "Division By Zero":
@@ -382,16 +204,10 @@ class DebuggingEngine:
             return self.fix_syntax(code, bug)
 
         if bug_type == "Dangerous Function":
-            return self.fix_dangerous_function(
-                code,
-                bug
-            )
+            return self.fix_dangerous_function(code, bug)
 
         if bug_type == "XSS Vulnerability":
-            return self.fix_xss(
-                code,
-                bug
-            )
+            return self.fix_xss(code, bug)
 
         return code
 
@@ -399,49 +215,69 @@ class DebuggingEngine:
     # MAIN DEBUGGING ENGINE
     # =========================================================
 
-    def fix(self, code, bugs):
-
+    def fix(self, code, bugs=None):
         self.fixes = []
+        original_code = code
+        current_code = code
 
-        current = code
+        # Do not attempt source-code fixes on invalid input
+        # until a syntax repair can be safely identified.
+        if not self.is_valid_python(current_code):
+            syntax_bugs = self.analyze_all(current_code)
 
+            for bug in syntax_bugs:
+                if bug.get("type") == "Syntax Error":
+                    candidate = self.apply_fix(current_code, bug)
+
+                    if (
+                        candidate != current_code
+                        and self.is_valid_python(candidate)
+                    ):
+                        current_code = candidate
+                        break
+
+        # Re-analyze after every accepted change.
         for _ in range(self.max_iterations):
+            if not self.is_valid_python(current_code):
+                break
 
-            detected = self.analyze_all(
-                current
-            )
+            detected_bugs = self.analyze_all(current_code)
 
-            if not detected:
+            if not detected_bugs:
                 break
 
             changed = False
 
-            for bug in detected:
+            for bug in detected_bugs:
+                candidate = self.apply_fix(current_code, bug)
 
-                new_code = self.apply_fix(
-                    current,
-                    bug
-                )
+                if candidate == current_code:
+                    continue
 
-                if new_code != current:
+                if not self.is_valid_python(candidate):
+                    continue
 
-                    current = new_code
-                    changed = True
-
-                    break
+                current_code = candidate
+                changed = True
+                break
 
             if not changed:
                 break
 
-        remaining = self.analyze_all(
-            current
-        )
+        remaining_bugs = self.analyze_all(current_code)
+        syntax_valid = self.is_valid_python(current_code)
+
+        # "verified" means the available checks found no remaining
+        # issues; it is not proof of full program correctness.
+        verified = syntax_valid and len(remaining_bugs) == 0
 
         return {
-            "original_code": code,
-            "fixed_code": current,
+            "original_code": original_code,
+            "fixed_code": current_code,
             "total_fixes": len(self.fixes),
             "iterations": len(self.fixes),
-            "remaining_bugs": remaining,
-            "fixes": self.fixes
+            "remaining_bugs": remaining_bugs,
+            "fixes": self.fixes,
+            "syntax_valid": syntax_valid,
+            "verified": verified
         }
