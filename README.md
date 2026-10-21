@@ -1,36 +1,76 @@
-AI-Powered Intelligent Code Review & Bug Detection System
+🤖 AI-Powered Intelligent Code Review & Bug Detection System
 
 Detect · Explain · Fix · Execute · Verify
 
-A Python-based web application for analyzing source code, identifying potential bugs and security issues, applying supported automatic fixes, executing code, and verifying the results.
+An intelligent code review and debugging web application built with Python and Flask. It analyzes source code, identifies supported bugs and potential security issues, applies selected automatic fixes, executes code, and reports verification results.
 
-Features
+"Python" (https://img.shields.io/badge/Python-3.10%2B-blue)
+"Flask" (https://img.shields.io/badge/Flask-Web%20Framework-green)
+"GitHub" (https://img.shields.io/badge/Version%20Control-GitHub-black)
+"Status" (https://img.shields.io/badge/Project-Educational-orange)
 
-- Bug Detection — Detect supported issues such as division by zero, undefined variables, and syntax errors.
-- Code Review — Analyze source code and report potential code quality issues.
-- Security Analysis — Check for supported security risk patterns.
-- Automatic Fixes — Apply selected fixes when a safe correction can be determined.
-- Code Execution — Execute submitted code and report output or runtime errors.
-- Fix Verification — Re-analyze corrected code and report whether detected issues remain.
-- File Upload — Upload source files for analysis.
-- Web Interface — Review detected issues, code quality information, execution results, and corrected code.
+---
 
-«Detection and automatic-fix capabilities depend on the implemented rules and supported programming languages. The tool does not guarantee detection or correction of every bug.»
+🎬 Project Demo
 
-Tech Stack
+"AI Code Review and Debugging Demo" (screenshots/demo.gif)
+
+---
+
+✨ Features
+
+- Bug Detection: Detect supported issues such as syntax errors, division by zero, and undefined variables.
+- Code Review: Analyze code and report potential quality issues.
+- Security Analysis: Identify supported security risk patterns.
+- Automatic Fixes: Apply selected corrections when a safe fix is available.
+- Code Execution: Run submitted code and report output or runtime errors.
+- Fix Verification: Re-analyze corrected code and report whether detected issues remain.
+- File Upload: Upload source files through the web interface.
+- Code Quality Report: Display a quality score and detected issue summaries.
+- Web Interface: View code analysis, corrections, execution results, and verification status.
+
+«Detection and automatic-fix capabilities depend on the implemented rules. The application does not guarantee that every bug or security vulnerability will be detected or corrected.»
+
+---
+
+🖥️ Screenshots
+
+1. Home Page
+
+"Project Home Page" (screenshots/home.png)
+
+2. Code Review and Debugging Results
+
+"Code Review Results" (screenshots/review.png)
+
+3. Dashboard
+
+"Project Dashboard" (screenshots/dashboard.png)
+
+---
+
+🛠️ Technology Stack
 
 Technology| Purpose
-Python| Backend logic and analysis
-Flask| Web application and API routes
+Python| Backend development
+Flask| Web application framework
 Python AST| Python syntax and structural analysis
-HTML, CSS, JavaScript| User interface
+HTML| Page structure
+CSS| Interface styling
+JavaScript| Frontend interactions
+Git and GitHub| Version control and repository hosting
 Scikit-learn / TF-IDF| Machine-learning components, where configured
-Git and GitHub| Version control and source hosting
 
-Project Structure
+---
+
+📁 Project Structure
 
 AI-Powered Intelligent Code Review and Bug Detection System/
+│
 ├── app.py
+├── requirements.txt
+├── README.md
+│
 ├── src/
 │   ├── bug_detector.py
 │   ├── code_parser.py
@@ -39,114 +79,141 @@ AI-Powered Intelligent Code Review and Bug Detection System/
 │   ├── security_checker.py
 │   ├── execution_engine.py
 │   └── verification_engine.py
+│
 ├── templates/
 ├── utils/
 ├── tests/
-├── requirements.txt
-└── README.md
+├── docs/
+└── screenshots/
+    ├── home.png
+    ├── review.png
+    ├── dashboard.png
+    └── demo.gif
 
-Some files or directories may differ depending on the current project version.
+This structure illustrates the main project components. Actual files and folders may vary with the current repository version.
 
-Getting Started
+---
+
+🚀 Getting Started
 
 Prerequisites
 
-- Python 3.10 or a compatible supported version
+Install the following:
+
+- Python 3.10 or a compatible version
 - pip
 - Git
 
-1. Clone the repository
+Step 1: Clone the Repository
 
 git clone https://github.com/yashaswinicd/AI-Powered-Intelligent-Code-Review-and-Bug-Detection-System.git
 
-2. Open the project directory
+Step 2: Open the Project Folder
 
 cd AI-Powered-Intelligent-Code-Review-and-Bug-Detection-System
 
-3. Create a virtual environment
+Step 3: Create a Virtual Environment
 
 python -m venv venv
 
-4. Activate the environment
+Step 4: Activate the Environment
 
 Windows PowerShell:
 
 .\venv\Scripts\Activate.ps1
 
-If PowerShell blocks activation, use:
+If PowerShell prevents activation, you can use the virtual environment's Python executable directly.
 
-.\venv\Scripts\python.exe -m pip install -r requirements.txt
-
-5. Install dependencies
+Step 5: Install Dependencies
 
 python -m pip install -r requirements.txt
 
-6. Run the application
+Step 6: Run the Application
 
 python app.py
 
-Open the local website at:
+Open the following address in your browser:
 
 http://127.0.0.1:5000
 
-The application may open your default browser automatically when the server starts.
+The application may open the browser automatically when the server starts.
 
-Example
+---
 
-Input
+🧪 Example: Automatic Syntax Fix
+
+Input Code
 
 if True
     print("Hello World")
 
-Expected correction
+Corrected Code
 
 if True:
     print("Hello World")
 
-The application can report the syntax error, apply the supported correction, execute the corrected code, and indicate whether verification succeeds.
+The application can detect the missing colon, apply the supported correction, execute the corrected code, and report verification status.
 
-Actual results depend on the implemented analyzer and execution environment.
+Actual results depend on the implemented debugging rules.
 
-Testing
+---
 
-Test the application with cases such as:
+🧪 Testing
 
-- Valid Python code
-- Missing-colon syntax errors
+The project can be tested using cases such as:
+
+- Valid Python programs
+- Syntax errors, such as missing colons
 - Division by zero
 - Undefined variables
-- Code with potential security risks
+- Potential security risks
 - Large source files, including 10,000-line inputs
 
-Record the actual results of each test before claiming that all tests pass.
+Test results should be recorded separately. The presence of a test file alone does not mean that the test has passed.
 
-Security Notice
+---
 
-Do not run untrusted source code on a personal computer or production server without proper isolation. Running arbitrary code can cause data loss, unauthorized file access, or other security problems. Use a restricted sandbox with appropriate resource and permission limits before deploying this application for public use.
+🔐 Security Considerations
 
-Current Limitations
+Warning: Executing untrusted source code can be dangerous.
 
-- Static analysis detects only patterns implemented by the analyzer.
+Before using this application with untrusted code or deploying it publicly, implement a properly isolated execution environment with restricted permissions, resource limits, and appropriate timeouts.
+
+Do not rely on static analysis alone to guarantee that code is secure.
+
+---
+
+⚠️ Current Limitations
+
+- Static analysis only detects implemented patterns.
 - Automatic fixes are limited to supported corrections.
-- A successful execution does not necessarily mean the code is bug-free.
-- Verification reports only the checks performed by the application.
-- Large-file performance and language-specific support should be tested separately.
+- Successful execution does not guarantee bug-free code.
+- Verification covers only the checks implemented by the application.
+- Large-file performance and multi-language support require separate testing.
 
-Future Improvements
+---
 
-- Broader static analysis and language support
+🔮 Future Enhancements
+
+- Expanded bug detection and language support
 - More comprehensive automated tests
-- Safer isolated code execution
+- Secure sandboxed code execution
 - Improved debugging explanations
-- Detailed test reports and analysis history
+- Detailed reports and analysis history
 - Continuous integration and deployment
 
-Author
+---
+
+👩‍💻 Author
 
 Yashaswini C D
 
 GitHub: "@yashaswinicd" (https://github.com/yashaswinicd)
 
-License
+Project Repository: "AI-Powered Intelligent Code Review and Bug Detection System" (https://github.com/yashaswinicd/AI-Powered-Intelligent-Code-Review-and-Bug-Detection-System)
 
-This project is intended for educational and development purposes. Add a "LICENSE" file to the repository if you intend to distribute the project under a specific open-source license.
+---
+
+📄 License
+
+Check the repository's existing license before redistributing this project. If you intend to publish it under the MIT License, include a valid "LICENSE" file in the repository.
