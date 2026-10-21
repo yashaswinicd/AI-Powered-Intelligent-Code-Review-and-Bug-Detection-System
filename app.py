@@ -1,4 +1,7 @@
 import os
+import threading
+import webbrowser
+
 from flask import Flask, request, jsonify, render_template
 
 from src.review_engine import ReviewEngine
@@ -10,13 +13,14 @@ from src.verification_engine import VerificationEngine
 from utils.file_handler import (
     validate_code,
     save_uploaded_file,
-    read_uploaded_file
+    read_uploaded_file,
 )
 
 
 app = Flask(__name__)
-
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
+
+URL = "http://127.0.0.1:5000"
 
 
 # =========================================================
@@ -35,10 +39,9 @@ verifier = VerificationEngine()
 # =========================================================
 
 def analyze(code, filename):
-
     return {
         "review": review.review(code, filename),
-        "security": security.check(code)
+        "security": security.check(code),
     }
 
 
@@ -47,113 +50,68 @@ def analyze(code, filename):
 # =========================================================
 
 def debug_code(code, filename):
-
-    # -----------------------------------------------------
-    # ORIGINAL ANALYSIS
-    # -----------------------------------------------------
-
     original = analyze(code, filename)
 
     current = code
     fixes = []
 
-    # -----------------------------------------------------
-    # AUTO-FIX LOOP
-    # -----------------------------------------------------
-
     for _ in range(10):
-
         result = analyze(current, filename)
 
-        # Combine normal bugs + security vulnerabilities
         bugs = (
             result["review"]["bugs"]["bugs"]
             + result["security"]["vulnerabilities"]
         )
 
-        # Nothing left to fix
         if not bugs:
             break
 
-        fixed = debugger.fix(
-            current,
-            bugs
-        )
-
+        fixed = debugger.fix(current, bugs)
         new_code = fixed["fixed_code"]
 
-        fixes.extend(
-            fixed["fixes"]
-        )
+        fixes.extend(fixed.get("fixes", []))
 
-        # Prevent infinite loop
+        # Prevent infinite loops and repeated unchanged code.
         if new_code == current:
             break
 
+        # Accept only syntactically valid Python changes.
+        if filename.lower().endswith(".py"):
+            if not debugger.is_valid_python(new_code):
+                break
+
         current = new_code
 
-    # -----------------------------------------------------
-    # FINAL ANALYSIS
-    # -----------------------------------------------------
+    final = analyze(current, filename)
 
-    final = analyze(
-        current,
-        filename
-    )
-
-    # Combine remaining normal bugs + security issues
     remaining = (
         final["review"]["bugs"]["bugs"]
         + final["security"]["vulnerabilities"]
     )
 
-    # -----------------------------------------------------
-    # EXECUTE FIXED CODE
-    # -----------------------------------------------------
-
-    execution = executor.run(
-        current
-    )
-
-    # -----------------------------------------------------
-    # ORIGINAL ISSUES
-    # -----------------------------------------------------
+    # Execute only through the configured execution engine.
+    execution = executor.run(current)
 
     original_bugs = (
         original["review"]["bugs"]["bugs"]
         + original["security"]["vulnerabilities"]
     )
 
-    # -----------------------------------------------------
-    # VERIFY FIX
-    # -----------------------------------------------------
-
     verification = verifier.verify(
         original_bugs,
         remaining,
-        execution
+        execution,
     )
-
-    # -----------------------------------------------------
-    # FINAL RESPONSE
-    # -----------------------------------------------------
 
     return {
         "filename": filename,
-
         "original_code": code,
-
         "fixed_code": current,
-
         "original_analysis": original,
-
         "fixed_analysis": final,
-
         "fixes": fixes,
-
         "execution": execution,
-
-        "verification": verification
+        "verification": verification,
     }
 
 
@@ -163,74 +121,55 @@ def debug_code(code, filename):
 
 @app.route("/")
 def home():
-
-    return render_template(
-        "index.html"
-    )
+    return render_template("index.html")
 
 
 @app.route("/review")
 def review_page():
-
-    return render_template(
-        "review.html"
-    )
+    return render_template("review.html")
 
 
 @app.route("/dashboard")
 def dashboard():
-
-    return render_template(
-        "dashboard.html"
-    )
+    return render_template("dashboard.html")
 
 
 # =========================================================
 # CODE ANALYSIS API
 # =========================================================
 
-@app.route(
-    "/analyze",
-    methods=["POST"]
-)
+@app.route("/analyze", methods=["POST"])
 def analyze_api():
+    data = request.get_json(silent=True)
 
-    data = request.get_json()
-
-    if not data or "code" not in data:
-
+    if not isinstance(data, dict) or "code" not in data:
         return jsonify({
             "success": False,
-            "error": "Code required"
+            "error": "Code required",
         }), 400
 
     code = data["code"]
+    filename = data.get("filename", "code.py")
 
-    filename = data.get(
-        "filename",
-        "code.py"
-    )
+    if not isinstance(code, str):
+        return jsonify({
+            "success": False,
+            "error": "Code must be a string",
+        }), 400
 
     try:
-
-        validate_code(
-            code,
-            filename
-        )
+        validate_code(code, filename)
 
         return jsonify({
             "success": True,
-            **analyze(
-                code,
-                filename
-            )
+            **analyze(code, filename),
         })
 
-    except Exception as e:
-
+    except Exception as exc:
+        app.logger.exception("Code analysis failed")
         return jsonify({
             "success": False,
-            "error": str(e)
+            "error": str(exc),
         }), 400
 
 
@@ -238,48 +177,38 @@ def analyze_api():
 # DEBUG API
 # =========================================================
 
-@app.route(
-    "/debug",
-    methods=["POST"]
-)
+@app.route("/debug", methods=["POST"])
 def debug_api():
+    data = request.get_json(silent=True)
 
-    data = request.get_json()
-
-    if not data or "code" not in data:
-
+    if not isinstance(data, dict) or "code" not in data:
         return jsonify({
             "success": False,
-            "error": "Code required"
+            "error": "Code required",
         }), 400
 
     code = data["code"]
+    filename = data.get("filename", "code.py")
 
-    filename = data.get(
-        "filename",
-        "code.py"
-    )
+    if not isinstance(code, str):
+        return jsonify({
+            "success": False,
+            "error": "Code must be a string",
+        }), 400
 
     try:
-
-        validate_code(
-            code,
-            filename
-        )
+        validate_code(code, filename)
 
         return jsonify({
             "success": True,
-            **debug_code(
-                code,
-                filename
-            )
+            **debug_code(code, filename),
         })
 
-    except Exception as e:
-
+    except Exception as exc:
+        app.logger.exception("Debugging request failed")
         return jsonify({
             "success": False,
-            "error": str(e)
+            "error": str(exc),
         }), 400
 
 
@@ -287,49 +216,47 @@ def debug_api():
 # FILE UPLOAD + DEBUG
 # =========================================================
 
-@app.route(
-    "/upload-debug",
-    methods=["POST"]
-)
+@app.route("/upload-debug", methods=["POST"])
 def upload_debug():
-
     if "file" not in request.files:
-
         return jsonify({
             "success": False,
-            "error": "No file uploaded"
+            "error": "No file uploaded",
         }), 400
 
+    path = None
+
     try:
+        uploaded_file = request.files["file"]
 
-        file = request.files["file"]
+        if not uploaded_file.filename:
+            return jsonify({
+                "success": False,
+                "error": "Choose a file first",
+            }), 400
 
-        path = save_uploaded_file(
-            file
-        )
+        path = save_uploaded_file(uploaded_file)
+        code = read_uploaded_file(path)
+        filename = os.path.basename(uploaded_file.filename)
 
-        code = read_uploaded_file(
-            path
-        )
-
-        filename = os.path.basename(
-            path
-        )
+        validate_code(code, filename)
 
         return jsonify({
             "success": True,
-            **debug_code(
-                code,
-                filename
-            )
+            **debug_code(code, filename),
         })
 
-    except Exception as e:
-
+    except Exception as exc:
+        app.logger.exception("File upload/debugging failed")
         return jsonify({
             "success": False,
-            "error": str(e)
+            "error": str(exc),
         }), 400
+
+    finally:
+        # Temporary-file cleanup depends on the file handler's
+        # storage contract; do not delete files here blindly.
+        pass
 
 
 # =========================================================
@@ -338,45 +265,36 @@ def upload_debug():
 
 @app.route("/api/health")
 def health():
-
     return jsonify({
         "status": "healthy",
-        "service": (
-            "AI Code Review and "
-            "Debugging System"
-        )
+        "service": "AI Code Review and Debugging System",
     })
 
 
 # =========================================================
-# START SERVER
+# START SERVER + OPEN BROWSER
 # =========================================================
 
 if __name__ == "__main__":
+    print("=" * 55)
+    print("AI CODE REVIEW & DEBUGGING SYSTEM")
+    print("=" * 55)
+    print("Source size limit: 5 MB")
+    print("Debugging: ENABLED")
+    print("Execution: ENABLED")
+    print("Auto-fix: ENABLED")
+    print(f"Website: {URL}")
+    print("Opening browser automatically...")
+    print("=" * 55)
 
-    print(
-        "AI CODE REVIEW & DEBUGGING SYSTEM"
-    )
-
-    print(
-        "Maximum source lines: 10,000"
-    )
-
-    print(
-        "Debugging: ENABLED"
-    )
-
-    print(
-        "Execution: ENABLED"
-    )
-
-    print(
-        "Auto-Fix: ENABLED"
-    )
+    threading.Timer(
+        1.5,
+        lambda: webbrowser.open(URL),
+    ).start()
 
     app.run(
         host="127.0.0.1",
         port=5000,
         debug=False,
-        use_reloader=False
+        use_reloader=False,
     )

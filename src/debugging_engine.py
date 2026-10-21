@@ -6,6 +6,7 @@ from src.security_checker import SecurityChecker
 
 
 class DebuggingEngine:
+    """Conservative Python debugging and source-preserving fix engine."""
 
     def __init__(self):
         self.fixes = []
@@ -17,11 +18,11 @@ class DebuggingEngine:
             "line": bug.get("line"),
             "description": description,
             "original": old,
-            "fixed": new
+            "fixed": new,
         })
 
     # ---------------------------------------------------------
-    # ANALYZE CODE
+    # ANALYSIS
     # ---------------------------------------------------------
 
     def analyze_all(self, code):
@@ -32,21 +33,21 @@ class DebuggingEngine:
             return [{
                 "type": "Analysis Error",
                 "line": 1,
+                "column": 1,
                 "severity": "high",
-                "message": str(exc)
+                "message": str(exc),
             }]
 
         try:
             security_result = SecurityChecker().check(code)
-            security_bugs = security_result.get(
-                "vulnerabilities", []
-            )
+            security_bugs = security_result.get("vulnerabilities", [])
         except Exception as exc:
             security_bugs = [{
                 "type": "Security Analysis Error",
                 "line": 1,
+                "column": 1,
                 "severity": "high",
-                "message": str(exc)
+                "message": str(exc),
             }]
 
         combined = []
@@ -57,156 +58,101 @@ class DebuggingEngine:
                 bug.get("type"),
                 bug.get("line"),
                 bug.get("column"),
-                bug.get("message")
+                bug.get("message"),
             )
-
             if key not in seen:
                 seen.add(key)
                 combined.append(bug)
 
         return combined
 
-    # ---------------------------------------------------------
-    # VALIDATE PYTHON
-    # ---------------------------------------------------------
-
     @staticmethod
     def is_valid_python(code):
         try:
             ast.parse(code)
             return True
-        except (SyntaxError, ValueError, TypeError):
+        except (SyntaxError, ValueError, TypeError, RecursionError):
             return False
+
+    # ---------------------------------------------------------
+    # SOURCE-PRESERVING LINE REPLACEMENT
+    # ---------------------------------------------------------
+
+    @staticmethod
+    def replace_line(code, line_number, replacement):
+        """Replace one line without discarding the remaining source."""
+        lines = code.splitlines(keepends=True)
+
+        if not 1 <= line_number <= len(lines):
+            return code
+
+        old_line = lines[line_number - 1]
+        newline = "\r\n" if old_line.endswith("\r\n") else (
+            "\n" if old_line.endswith("\n") else ""
+        )
+
+        lines[line_number - 1] = replacement.rstrip("\r\n") + newline
+        return "".join(lines)
 
     # ---------------------------------------------------------
     # DIVISION BY ZERO
     # ---------------------------------------------------------
 
     def fix_division(self, code, bug):
-        lines = code.splitlines()
         line_number = bug.get("line", 0)
+        lines = code.splitlines()
 
         if not 1 <= line_number <= len(lines):
             return code
 
         old_line = lines[line_number - 1]
 
-        # Case 1: Literal zero, e.g. return a / 0.
-        literal_match = re.fullmatch(
-            r"(\s*)return\s+([A-Za-z_]\w*)\s*/\s*0\s*",
-            old_line
-        )
-
-        if literal_match:
-            indentation, numerator = literal_match.groups()
-
-            # Find the enclosing function definition.
-            function_line = None
-
-            for i in range(line_number - 2, -1, -1):
-                if re.match(r"\s*def\s+\w+\s*\(", lines[i]):
-                    function_line = lines[i]
-                    break
-
-            if function_line:
-                params_match = re.search(
-                    r"def\s+\w+\s*\((.*?)\)\s*:",
-                    function_line
-                )
-
-                if params_match:
-                    params = []
-
-                    for param in params_match.group(1).split(","):
-                        param = param.strip().split("=")[0].strip()
-
-                        if re.fullmatch(r"[A-Za-z_]\w*", param):
-                            params.append(param)
-
-                    # This is a heuristic, not proof of intent.
-                    candidates = [
-                        param for param in params
-                        if param != numerator
-                    ]
-
-                    if candidates:
-                        divisor = candidates[-1]
-                        new_line = (
-                            f"{indentation}return "
-                            f"{numerator} / {divisor}"
-                        )
-
-                        candidate_lines = lines[:]
-                        candidate_lines[line_number - 1] = new_line
-                        candidate = "\n".join(candidate_lines)
-
-                        if self.is_valid_python(candidate):
-                            self.add_fix(
-                                bug,
-                                old_line,
-                                new_line,
-                                "Replaced literal zero with the last "
-                                "eligible function parameter. "
-                                "Review the assumption."
-                            )
-                            return candidate
-
-            # Cannot safely infer intended divisor.
+        # A literal zero does not reveal the intended divisor.
+        # Never silently replace it with an arbitrary value.
+        try:
+            tree = ast.parse(code)
+        except (SyntaxError, ValueError, TypeError, RecursionError):
             return code
 
-        # Case 2: Variable divisor, e.g. return a / b.
-        variable_match = re.fullmatch(
-            r"(\s*)return\s+(.+?)\s*/\s*([A-Za-z_]\w*)\s*",
-            old_line
-        )
+        target_nodes = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.BinOp)
+            and isinstance(node.op, ast.Div)
+            and isinstance(node.right, ast.Constant)
+            and isinstance(node.right.value, (int, float))
+            and not isinstance(node.right.value, bool)
+            and node.right.value == 0
+            and getattr(node, "lineno", None) == line_number
+        ]
 
-        if not variable_match:
+        if target_nodes:
+            # Report honestly that human intent is needed.
+            bug["manual_review_required"] = True
+            bug["suggestion"] = (
+                "The divisor is literal zero. Choose the intended non-zero "
+                "divisor or add explicit error handling; no value was guessed."
+            )
             return code
 
-        indentation, numerator, divisor = variable_match.groups()
-
-        if line_number >= 2:
-            previous = lines[line_number - 2].strip()
-
-            if previous == f"if {divisor} == 0:":
-                return code
-
-        replacement = (
-            f"{indentation}if {divisor} == 0:\n"
-            f"{indentation}    raise ZeroDivisionError("
-            '"Cannot divide by zero")\n'
-            f"{old_line}"
-        )
-
-        candidate_lines = lines[:]
-        candidate_lines[line_number - 1] = replacement
-        candidate = "\n".join(candidate_lines)
-
-        if not self.is_valid_python(candidate):
-            return code
-
-        self.add_fix(
-            bug,
-            old_line,
-            replacement,
-            "Added a zero-divisor guard. Review the result."
-        )
-
-        return candidate
+        # For a variable divisor, a guard may prevent the crash,
+        # but it does not infer the application's intended behavior.
+        return code
 
     # ---------------------------------------------------------
     # OTHER FIXES
     # ---------------------------------------------------------
 
     def fix_index(self, code, bug):
+        # Automatic index correction can change intended program behavior.
         return code
 
     def fix_undefined(self, code, bug):
+        # The correct variable name cannot reliably be inferred.
         return code
 
     def fix_syntax(self, code, bug):
-        lines = code.splitlines()
         line_number = bug.get("line", 1)
+        lines = code.splitlines()
 
         if not 1 <= line_number <= len(lines):
             return code
@@ -216,7 +162,7 @@ class DebuggingEngine:
 
         block_keywords = (
             "if ", "elif ", "else", "for ", "while ",
-            "def ", "class ", "try", "except", "finally", "with "
+            "def ", "class ", "try", "except", "finally", "with ",
         )
 
         if not stripped.startswith(block_keywords):
@@ -225,33 +171,34 @@ class DebuggingEngine:
         if stripped.endswith(":"):
             return code
 
-        candidate_lines = lines[:]
-        candidate_lines[line_number - 1] = old_line.rstrip() + ":"
-        candidate = "\n".join(candidate_lines)
+        candidate = self.replace_line(
+            code, line_number, old_line.rstrip() + ":"
+        )
 
-        if not self.is_valid_python(candidate):
+        if candidate == code or not self.is_valid_python(candidate):
             return code
 
         self.add_fix(
             bug,
             old_line,
-            candidate_lines[line_number - 1],
-            "Added a missing colon and validated syntax."
+            candidate.splitlines()[line_number - 1],
+            "Added a missing colon and validated Python syntax.",
         )
-
         return candidate
 
     def fix_eval(self, code, bug):
+        # Replacing eval safely requires knowing the intended data format.
         return code
 
     def fix_dangerous_function(self, code, bug):
         return self.fix_eval(code, bug)
 
     def fix_xss(self, code, bug):
+        # Correct escaping depends on the output context.
         return code
 
     # ---------------------------------------------------------
-    # APPLY FIX
+    # APPLY ONE FIX
     # ---------------------------------------------------------
 
     def apply_fix(self, code, bug):
@@ -283,7 +230,6 @@ class DebuggingEngine:
 
     def fix(self, code, bugs=None):
         self.fixes = []
-        original_code = code
 
         if not isinstance(code, str):
             return {
@@ -295,16 +241,17 @@ class DebuggingEngine:
                     "type": "Invalid Input",
                     "line": 1,
                     "severity": "high",
-                    "message": "Expected Python source code as a string."
+                    "message": "Expected Python source code as a string.",
                 }],
                 "fixes": [],
                 "syntax_valid": False,
-                "verified": False
+                "verified": False,
             }
 
+        original_code = code
         current_code = code
 
-        # Try one conservative syntax repair first.
+        # One conservative syntax repair attempt.
         if not self.is_valid_python(current_code):
             syntax_bugs = self.analyze_all(current_code)
 
@@ -321,13 +268,12 @@ class DebuggingEngine:
                     current_code = candidate
                     break
 
-        # Re-analyze after every accepted change.
+        # Re-analyze after each accepted fix.
         for _ in range(self.max_iterations):
             if not self.is_valid_python(current_code):
                 break
 
             detected_bugs = self.analyze_all(current_code)
-
             if not detected_bugs:
                 break
 
@@ -352,7 +298,7 @@ class DebuggingEngine:
         remaining_bugs = self.analyze_all(current_code)
         syntax_valid = self.is_valid_python(current_code)
 
-        # Static verification does not guarantee runtime correctness.
+        # Static analysis alone cannot prove runtime correctness.
         verified = syntax_valid and len(remaining_bugs) == 0
 
         return {
@@ -363,5 +309,5 @@ class DebuggingEngine:
             "remaining_bugs": remaining_bugs,
             "fixes": self.fixes,
             "syntax_valid": syntax_valid,
-            "verified": verified
+            "verified": verified,
         }
