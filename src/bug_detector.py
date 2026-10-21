@@ -19,25 +19,22 @@ class BugDetector:
                     "severity": "critical",
                     "message": e.msg,
                     "root_cause": "Invalid Python syntax.",
-                    "suggestion": (
-                        "Fix the syntax error at the reported line."
-                    )
+                    "suggestion": "Fix the syntax error at the reported line."
                 }]
             }
 
-        # ---------------------------------------------
-        # COLLECT VARIABLES
-        # ---------------------------------------------
-
-        defined_variables = set()
         builtin_names = set(dir(builtins))
         builtin_names.update({"True", "False", "None"})
 
+        # ---------------------------------------------
+        # COLLECT DEFINED VARIABLES
+        # ---------------------------------------------
+
+        defined_variables = set()
+
         for node in ast.walk(tree):
 
-            if isinstance(node, (ast.Assign, ast.AnnAssign,
-                                  ast.AugAssign)):
-
+            if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
                 targets = (
                     node.targets
                     if isinstance(node, ast.Assign)
@@ -52,11 +49,13 @@ class BugDetector:
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 defined_variables.add(node.name)
 
-                for arg in (
+                args = (
                     node.args.posonlyargs
                     + node.args.args
                     + node.args.kwonlyargs
-                ):
+                )
+
+                for arg in args:
                     defined_variables.add(arg.arg)
 
                 if node.args.vararg:
@@ -77,9 +76,7 @@ class BugDetector:
             elif isinstance(node, ast.ImportFrom):
                 for alias in node.names:
                     if alias.name != "*":
-                        defined_variables.add(
-                            alias.asname or alias.name
-                        )
+                        defined_variables.add(alias.asname or alias.name)
 
             elif isinstance(node, (ast.For, ast.AsyncFor)):
                 for child in ast.walk(node.target):
@@ -98,7 +95,115 @@ class BugDetector:
                                 defined_variables.add(child.id)
 
         # ---------------------------------------------
-        # ZERO VARIABLES
+        # COLLECT TOP-LEVEL DEFINITION LINES
+        # ---------------------------------------------
+
+        top_level_definitions = {}
+
+        for statement in tree.body:
+
+            if isinstance(statement, ast.Assign):
+                targets = statement.targets
+
+            elif isinstance(statement, (ast.AnnAssign, ast.AugAssign)):
+                targets = [statement.target]
+
+            else:
+                targets = []
+
+            for target in targets:
+                for child in ast.walk(target):
+                    if isinstance(child, ast.Name):
+                        top_level_definitions.setdefault(
+                            child.id, statement.lineno
+                        )
+
+            if isinstance(
+                statement,
+                (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+            ):
+                top_level_definitions.setdefault(
+                    statement.name, statement.lineno
+                )
+
+            elif isinstance(statement, (ast.Import, ast.ImportFrom)):
+                for alias in statement.names:
+                    if alias.name != "*":
+                        imported_name = (
+                            alias.asname
+                            or (
+                                alias.name.split(".")[0]
+                                if isinstance(statement, ast.Import)
+                                else alias.name
+                            )
+                        )
+                        top_level_definitions.setdefault(
+                            imported_name, statement.lineno
+                        )
+
+        # ---------------------------------------------
+        # DETECT TOP-LEVEL USE BEFORE ASSIGNMENT
+        # ---------------------------------------------
+
+        for statement in tree.body:
+
+            # Function and class bodies have separate execution rules.
+            # Do not treat their bodies as immediately executed statements.
+            if isinstance(
+                statement,
+                (
+                    ast.FunctionDef,
+                    ast.AsyncFunctionDef,
+                    ast.ClassDef,
+                    ast.Import,
+                    ast.ImportFrom
+                )
+            ):
+                continue
+
+            if not isinstance(
+                statement,
+                (
+                    ast.Expr,
+                    ast.Assign,
+                    ast.AnnAssign,
+                    ast.AugAssign
+                )
+            ):
+                continue
+
+            for node in ast.walk(statement):
+
+                if not (
+                    isinstance(node, ast.Name)
+                    and isinstance(node.ctx, ast.Load)
+                ):
+                    continue
+
+                name = node.id
+                definition_line = top_level_definitions.get(name)
+
+                if (
+                    definition_line is not None
+                    and definition_line > node.lineno
+                    and name not in builtin_names
+                ):
+                    bugs.append({
+                        "type": "Undefined Variable",
+                        "line": node.lineno,
+                        "column": node.col_offset + 1,
+                        "severity": "high",
+                        "message": (
+                            f"Variable '{name}' is used before being defined."
+                        ),
+                        "root_cause": (
+                            f"Variable '{name}' is assigned later in the module."
+                        ),
+                        "suggestion": f"Define '{name}' before using it."
+                    })
+
+        # ---------------------------------------------
+        # DETECT VARIABLES ASSIGNED ZERO
         # ---------------------------------------------
 
         zero_variables = set()
@@ -128,12 +233,13 @@ class BugDetector:
                     zero_variables.add(node.target.id)
 
         # ---------------------------------------------
-        # SIMPLE LIST LENGTHS
+        # COLLECT SIMPLE LIST AND TUPLE LENGTHS
         # ---------------------------------------------
 
         list_lengths = {}
 
         for node in ast.walk(tree):
+
             if isinstance(node, ast.Assign) and isinstance(
                 node.value, (ast.List, ast.Tuple)
             ):
@@ -166,9 +272,7 @@ class BugDetector:
 
                 if literal_zero or variable_zero:
                     divisor = (
-                        node.right.id
-                        if variable_zero
-                        else None
+                        node.right.id if variable_zero else None
                     )
 
                     if divisor:
@@ -206,9 +310,10 @@ class BugDetector:
                 if variable in list_lengths:
                     index_value = None
 
-                    if isinstance(node.slice, ast.Constant) and type(
-                        node.slice.value
-                    ) is int:
+                    if (
+                        isinstance(node.slice, ast.Constant)
+                        and type(node.slice.value) is int
+                    ):
                         index_value = node.slice.value
 
                     if index_value is not None:
@@ -248,38 +353,20 @@ class BugDetector:
                     name not in defined_variables
                     and name not in builtin_names
                 ):
-                    parent_attribute = False
-
-                    for parent in ast.walk(tree):
-                        for child in ast.iter_child_nodes(parent):
-                            if (
-                                child is node
-                                and isinstance(parent, ast.Attribute)
-                                and parent.value is node
-                            ):
-                                parent_attribute = True
-                                break
-                        if parent_attribute:
-                            break
-
-                    if not parent_attribute:
-                        bugs.append({
-                            "type": "Undefined Variable",
-                            "line": node.lineno,
-                            "column": node.col_offset + 1,
-                            "severity": "high",
-                            "message": (
-                                f"Variable '{name}' "
-                                "is used before being defined."
-                            ),
-                            "root_cause": (
-                                f"Variable '{name}' has no known "
-                                "definition in the analyzed code."
-                            ),
-                            "suggestion": (
-                                f"Define '{name}' before using it."
-                            )
-                        })
+                    bugs.append({
+                        "type": "Undefined Variable",
+                        "line": node.lineno,
+                        "column": node.col_offset + 1,
+                        "severity": "high",
+                        "message": (
+                            f"Variable '{name}' is used before being defined."
+                        ),
+                        "root_cause": (
+                            f"Variable '{name}' has no known "
+                            "definition in the analyzed code."
+                        ),
+                        "suggestion": f"Define '{name}' before using it."
+                    })
 
             # DANGEROUS EVAL
             if isinstance(node, ast.Call):
