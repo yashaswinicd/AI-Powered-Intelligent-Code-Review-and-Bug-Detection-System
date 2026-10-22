@@ -1,4 +1,4 @@
-
+﻿
 import os
 import threading
 import webbrowser
@@ -68,7 +68,7 @@ def collect_issues(analysis):
 # DEBUGGING + AUTO FIX
 # =========================================================
 
-def debug_code(code, filename):
+def debug_code(code, filename, stdin_input=None):
     original_analysis = analyze(code, filename)
 
     current_code = code
@@ -117,7 +117,7 @@ def debug_code(code, filename):
     remaining_issues = collect_issues(final_analysis)
 
     # Run code only through the configured execution engine.
-    execution_result = executor.run(current_code)
+    execution_result = executor.run(current_code, stdin_input=stdin_input)
 
     original_issues = collect_issues(original_analysis)
 
@@ -176,6 +176,19 @@ def analyze_api():
 
     code = data["code"]
     filename = data.get("filename", "code.py")
+    stdin_input = data.get("stdin_input")
+
+    if stdin_input is not None and not isinstance(stdin_input, str):
+        return jsonify({
+            "success": False,
+            "error": "Test input must be a string",
+        }), 400
+
+    if stdin_input is not None and len(stdin_input) > 10000:
+        return jsonify({
+            "success": False,
+            "error": "Test input cannot exceed 10000 characters",
+        }), 400
 
     if not isinstance(code, str):
         return jsonify({
@@ -216,6 +229,19 @@ def debug_api():
 
     code = data["code"]
     filename = data.get("filename", "code.py")
+    stdin_input = data.get("stdin_input")
+
+    if stdin_input is not None and not isinstance(stdin_input, str):
+        return jsonify({
+            "success": False,
+            "error": "Test input must be a string",
+        }), 400
+
+    if stdin_input is not None and len(stdin_input) > 10000:
+        return jsonify({
+            "success": False,
+            "error": "Test input cannot exceed 10000 characters",
+        }), 400
 
     if not isinstance(code, str):
         return jsonify({
@@ -225,7 +251,7 @@ def debug_api():
 
     try:
         validate_code(code, filename)
-        result = debug_code(code, filename)
+        result = debug_code(code, filename, stdin_input=stdin_input)
 
         return jsonify({
             "success": True,
@@ -326,3 +352,7 @@ if __name__ == "__main__":
         debug=False,
         use_reloader=False,
     )
+
+
+
+

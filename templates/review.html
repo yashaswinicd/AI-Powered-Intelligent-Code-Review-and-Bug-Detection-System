@@ -1,864 +1,434 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Code Review &amp; Debugging</title>
 
-<title>AI Code Review & Debugging</title>
-
-<link rel="stylesheet"
-href="{{ url_for('static', filename='css/style.css') }}">
-
-<link rel="stylesheet"
-href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
 <style>
-
-.review-container{
-    max-width:1200px;
-    margin:40px auto;
-    padding:20px;
-}
-
-.hero{
-    text-align:center;
-    padding:35px 20px;
-}
-
-.hero h1{
-    font-size:38px;
-    color:#64c8ff;
-    margin-bottom:10px;
-}
-
-.hero p{
-    color:#a9b7c6;
-}
-
-.card{
-    background:rgba(255,255,255,.05);
-    border:1px solid rgba(100,200,255,.2);
-    border-radius:18px;
-    padding:25px;
-    margin:20px 0;
-    box-shadow:0 10px 30px rgba(0,0,0,.2);
-}
-
-.tabs{
-    display:flex;
-    justify-content:center;
-    gap:12px;
-    margin-bottom:20px;
-}
-
-.tab{
-    padding:12px 25px;
-    border:1px solid #64c8ff;
-    border-radius:10px;
-    background:transparent;
-    color:#64c8ff;
-    cursor:pointer;
-}
-
-.tab.active,
-.tab:hover{
-    background:#64c8ff;
-    color:#07111f;
-}
-
-textarea{
-    width:100%;
-    height:300px;
-    background:#080d14;
-    color:#e8f1ff;
-    border:1px solid #26384c;
-    border-radius:12px;
-    padding:18px;
-    font-family:monospace;
-    resize:vertical;
-    box-sizing:border-box;
-}
-
-.upload{
-    border:2px dashed #397da5;
-    padding:45px;
-    text-align:center;
-    border-radius:15px;
-    display:none;
-    cursor:pointer;
-}
-
-.upload.active{
-    display:block;
-}
-
-.upload i{
-    font-size:45px;
-    color:#64c8ff;
-}
-
-input[type=file]{
-    display:none;
-}
-
-.main-btn{
-    width:100%;
-    padding:16px;
-    border:0;
-    border-radius:12px;
-    background:linear-gradient(135deg,#64c8ff,#087fff);
-    color:white;
-    font-size:17px;
-    font-weight:bold;
-    cursor:pointer;
-}
-
-.main-btn:disabled{
-    opacity:.5;
-}
-
-.loader{
-    display:none;
-    text-align:center;
-}
-
-.pipeline{
-    display:grid;
-    grid-template-columns:repeat(4,1fr);
-    gap:12px;
-    margin-top:20px;
-}
-
-.step{
-    padding:15px;
-    background:#101a26;
-    border-radius:12px;
-    color:#91a5b8;
-}
-
-.step i{
-    display:block;
-    font-size:25px;
-    margin-bottom:8px;
-}
-
-.results{
-    display:none;
-}
-
-.score{
-    text-align:center;
-}
-
-.score-number{
-    font-size:65px;
-    font-weight:bold;
-    color:#64c8ff;
-}
-
-.stats{
-    display:grid;
-    grid-template-columns:repeat(4,1fr);
-    gap:15px;
-}
-
-.stat{
-    text-align:center;
-    background:#101a26;
-    border-radius:14px;
-    padding:20px;
-}
-
-.stat strong{
-    display:block;
-    font-size:30px;
-    color:#64c8ff;
-}
-
-.stat span{
-    color:#91a5b8;
-}
-
-.issue{
-    background:#0b121b;
-    border-left:5px solid #64c8ff;
-    padding:18px;
-    margin:12px 0;
-    border-radius:10px;
-}
-
+.review-container{max-width:1200px;margin:40px auto;padding:20px}
+.hero{text-align:center;padding:35px 20px}
+.hero h1{font-size:38px;color:#64c8ff;margin-bottom:10px}
+.hero p{color:#a9b7c6}
+.card{background:rgba(255,255,255,.05);border:1px solid rgba(100,200,255,.2);border-radius:18px;padding:25px;margin:20px 0;box-shadow:0 10px 30px rgba(0,0,0,.2)}
+.tabs{display:flex;justify-content:center;gap:12px;margin-bottom:20px}
+.tab{padding:12px 25px;border:1px solid #64c8ff;border-radius:10px;background:transparent;color:#64c8ff;cursor:pointer}
+.tab.active,.tab:hover{background:#64c8ff;color:#07111f}
+textarea{width:100%;height:300px;background:#080d14;color:#e8f1ff;border:1px solid #26384c;border-radius:12px;padding:18px;font-family:monospace;resize:vertical;box-sizing:border-box}
+#stdinInput{height:100px;margin-top:8px}
+.input-label{display:block;margin-top:18px;margin-bottom:6px;color:#64c8ff;font-weight:bold}
+.help-text{color:#91a5b8;font-size:13px;margin:6px 0 12px}
+.upload{border:2px dashed #397da5;padding:45px;text-align:center;border-radius:15px;display:none;cursor:pointer}
+.upload.active{display:block}
+.upload i{font-size:45px;color:#64c8ff}
+input[type=file]{display:none}
+.main-btn{width:100%;padding:16px;border:0;border-radius:12px;background:linear-gradient(135deg,#64c8ff,#087fff);color:white;font-size:17px;font-weight:bold;cursor:pointer}
+.main-btn:disabled{opacity:.5}
+.loader{display:none;text-align:center}
+.pipeline{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:20px}
+.step{padding:15px;background:#101a26;border-radius:12px;color:#91a5b8}
+.step i{display:block;font-size:25px;margin-bottom:8px}
+.results{display:none}
+.score{text-align:center}
+.score-number{font-size:65px;font-weight:bold;color:#64c8ff}
+.score-comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px;margin-top:20px}
+.score-panel{background:#101a26;border:1px solid #24384d;border-radius:14px;padding:20px}
+.score-panel h3{color:#64c8ff;margin-top:0}
+.score-panel p{margin-bottom:5px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:15px}
+.stat{text-align:center;background:#101a26;border-radius:14px;padding:20px}
+.stat strong{display:block;font-size:30px;color:#64c8ff}
+.stat span{color:#91a5b8}
+.issue{background:#0b121b;border-left:5px solid #64c8ff;padding:18px;margin:12px 0;border-radius:10px;overflow-wrap:anywhere}
 .issue.critical{border-color:#ff4444}
 .issue.high{border-color:#ff8800}
 .issue.medium{border-color:#ffcc00}
 .issue.low{border-color:#44ff88}
-
-.badge{
-    float:right;
-    padding:5px 10px;
-    border-radius:15px;
-    font-size:12px;
-}
-
+.badge{float:right;padding:5px 10px;border-radius:15px;font-size:12px}
 .badge-critical{background:#ff4444}
 .badge-high{background:#ff8800}
 .badge-medium{background:#ffcc00;color:#111}
 .badge-low{background:#44ff88;color:#111}
-
-.debug-grid{
-    display:grid;
-    grid-template-columns:repeat(3,1fr);
-    gap:15px;
-}
-
-.debug-box{
-    padding:20px;
-    border-radius:14px;
-    background:#101a26;
-    border:1px solid #24384d;
-}
-
-.debug-box h3{
-    color:#64c8ff;
-}
-
-.success{
-    color:#44ff88;
-}
-
-.error{
-    color:#ff5555;
-}
-
-.code-box{
-    background:#070b10;
-    padding:18px;
-    border-radius:12px;
-    overflow:auto;
-    color:#d8e5f5;
-    font-family:monospace;
-    white-space:pre-wrap;
-}
-
-.verify{
-    text-align:center;
-    padding:25px;
-    border-radius:15px;
-    background:rgba(68,255,136,.08);
-    border:1px solid rgba(68,255,136,.3);
-}
-
-@media(max-width:800px){
-    .stats,
-    .pipeline,
-    .debug-grid{
-        grid-template-columns:1fr 1fr;
-    }
-}
-
-@media(max-width:500px){
-    .stats,
-    .pipeline,
-    .debug-grid{
-        grid-template-columns:1fr;
-    }
-
-    .hero h1{
-        font-size:28px;
-    }
-}
-
+.debug-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:15px}
+.debug-box{padding:20px;border-radius:14px;background:#101a26;border:1px solid #24384d;overflow-wrap:anywhere}
+.debug-box h3{color:#64c8ff}
+.success{color:#44ff88}
+.error{color:#ff5555}
+.code-box{background:#070b10;padding:18px;border-radius:12px;overflow:auto;color:#d8e5f5;font-family:monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+.verify{text-align:center;padding:25px;border-radius:15px;background:rgba(68,255,136,.08);border:1px solid rgba(68,255,136,.3)}
+@media(max-width:800px){.stats,.pipeline,.debug-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:500px){.stats,.pipeline,.debug-grid,.score-comparison{grid-template-columns:1fr}.hero h1{font-size:28px}}
 </style>
 </head>
 
 <body>
-
 <nav class="navbar">
-
-<div class="nav-brand">
-<i class="fas fa-robot"></i>
-<span>AI Code Review</span>
-</div>
-
-<div class="nav-links">
-<a href="/">Home</a>
-<a href="/review" class="active">Review</a>
-<a href="/dashboard">Dashboard</a>
-</div>
-
+    <div class="nav-brand">
+        <i class="fas fa-robot"></i>
+        <span>AI Code Review</span>
+    </div>
+    <div class="nav-links">
+        <a href="/">Home</a>
+        <a href="/review" class="active">Review</a>
+        <a href="/dashboard">Dashboard</a>
+    </div>
 </nav>
 
-
 <div class="review-container">
+    <section class="hero">
+        <h1><i class="fas fa-microchip"></i> AI Code Review &amp; Debugging</h1>
+        <p>Detect • Explain • Fix • Execute • Verify</p>
+    </section>
 
-<section class="hero">
+    <div class="card">
+        <div class="tabs">
+            <button type="button" class="tab active" id="pasteTab" onclick="showPaste()">
+                <i class="fas fa-code"></i> Paste Code
+            </button>
+            <button type="button" class="tab" id="uploadTab" onclick="showUpload()">
+                <i class="fas fa-upload"></i> Upload File
+            </button>
+        </div>
 
-<h1>
-<i class="fas fa-microchip"></i>
-AI Code Review & Debugging
-</h1>
+        <div id="pasteBox">
+            <label class="input-label" for="code">Python Code</label>
+            <textarea id="code" placeholder="Paste your Python code here..."></textarea>
 
-<p>
-Detect • Explain • Fix • Execute • Verify
-</p>
+            <label class="input-label" for="stdinInput">
+                <i class="fas fa-keyboard"></i> Test Input (Optional)
+            </label>
+            <textarea id="stdinInput" rows="4"
+                placeholder="Enter test input, one line per input() call..."></textarea>
+            <p class="help-text">
+                Used when your Python code calls input(). Leave empty if no input is required.
+            </p>
+        </div>
 
-</section>
+        <div id="uploadBox" class="upload" onclick="document.getElementById('fileInput').click()">
+            <i class="fas fa-cloud-arrow-up"></i>
+            <h3>Upload Source Code</h3>
+            <p>Supports Python, Java, C, C++, JavaScript</p>
+            <input id="fileInput" type="file" accept=".py,.java,.c,.cpp,.js">
+            <p id="fileName"></p>
+        </div>
 
+        <br>
+        <button type="button" class="main-btn" id="debugBtn" onclick="startDebug()">
+            <i class="fas fa-bug"></i> Analyze &amp; Debug Code
+        </button>
+    </div>
 
-<div class="card">
+    <div class="card loader" id="loader">
+        <h2><i class="fas fa-robot"></i> AI Debugging Pipeline</h2>
+        <div class="pipeline">
+            <div class="step"><i class="fas fa-search"></i>Detect</div>
+            <div class="step"><i class="fas fa-wand-magic-sparkles"></i>Auto-Fix</div>
+            <div class="step"><i class="fas fa-play"></i>Execute</div>
+            <div class="step"><i class="fas fa-circle-check"></i>Verify</div>
+        </div>
+    </div>
 
-<div class="tabs">
+    <div class="results" id="results">
+        <div class="card score">
+            <h2>Code Quality Score Comparison</h2>
+            <div class="score-comparison">
+                <div class="score-panel">
+                    <h3>Original Code</h3>
+                    <div class="score-number" id="originalScore">0</div>
+                    <p>Grade: <strong id="originalGrade">-</strong></p>
+                </div>
+                <div class="score-panel">
+                    <h3>Fixed Code</h3>
+                    <div class="score-number" id="score">0</div>
+                    <p>Grade: <strong id="grade">-</strong></p>
+                </div>
+            </div>
+            <p>Scores are based on the analysis results returned by the backend.</p>
+        </div>
 
-<button class="tab active"
-onclick="showPaste()">
-<i class="fas fa-code"></i> Paste Code
-</button>
+        <div class="stats">
+            <div class="stat"><strong id="lines">0</strong><span>Lines</span></div>
+            <div class="stat"><strong id="bugs">0</strong><span>Original Bugs</span></div>
+            <div class="stat"><strong id="security">0</strong><span>Security Issues</span></div>
+            <div class="stat"><strong id="fixCount">0</strong><span>Auto Fixes</span></div>
+        </div>
 
-<button class="tab"
-onclick="showUpload()">
-<i class="fas fa-upload"></i> Upload File
-</button>
+        <div class="card">
+            <h2><i class="fas fa-bug"></i> Detected Issues</h2>
+            <div id="issues"></div>
+        </div>
 
+        <div class="card">
+            <h2><i class="fas fa-wand-magic-sparkles"></i> Automatic Fixes</h2>
+            <div id="fixes"></div>
+        </div>
+
+        <div class="card">
+            <h2><i class="fas fa-terminal"></i> Execution Result</h2>
+            <div class="debug-grid">
+                <div class="debug-box">
+                    <h3>Status</h3>
+                    <p id="execStatus">-</p>
+                </div>
+                <div class="debug-box">
+                    <h3>Error Type</h3>
+                    <p id="errorType">-</p>
+                </div>
+                <div class="debug-box">
+                    <h3>Error Line</h3>
+                    <p id="errorLine">-</p>
+                </div>
+            </div>
+            <br>
+            <h3>Output</h3>
+            <div class="code-box" id="output">No output</div>
+        </div>
+
+        <div class="card">
+            <h2><i class="fas fa-code"></i> Corrected Code</h2>
+            <div class="code-box" id="fixedCode">No corrected code</div>
+        </div>
+
+        <div class="card verify">
+            <h2><i class="fas fa-shield-alt"></i> Fix Verification</h2>
+            <h2 id="verifyStatus">Waiting...</h2>
+            <p id="verifyMessage"></p>
+        </div>
+    </div>
 </div>
-
-
-<div id="pasteBox">
-
-<textarea id="code"
-placeholder="Paste your Python code here..."></textarea>
-
-</div>
-
-
-<div id="uploadBox"
-class="upload"
-onclick="fileInput.click()">
-
-<i class="fas fa-cloud-arrow-up"></i>
-
-<h3>Upload Source Code</h3>
-
-<p>Supports Python, Java, C, C++, JavaScript</p>
-
-<input id="fileInput"
-type="file"
-accept=".py,.java,.c,.cpp,.js">
-
-<p id="fileName"></p>
-
-</div>
-
-
-<br>
-
-<button class="main-btn"
-id="debugBtn"
-onclick="startDebug()">
-
-<i class="fas fa-bug"></i>
-Analyze & Debug Code
-
-</button>
-
-</div>
-
-
-<div class="card loader" id="loader">
-
-<h2>
-<i class="fas fa-robot"></i>
-AI Debugging Pipeline
-</h2>
-
-<div class="pipeline">
-
-<div class="step">
-<i class="fas fa-search"></i>
-Detect
-</div>
-
-<div class="step">
-<i class="fas fa-wand-magic-sparkles"></i>
-Auto-Fix
-</div>
-
-<div class="step">
-<i class="fas fa-play"></i>
-Execute
-</div>
-
-<div class="step">
-<i class="fas fa-circle-check"></i>
-Verify
-</div>
-
-</div>
-
-</div>
-
-
-<div class="results" id="results">
-
-
-<div class="card score">
-
-<h2>Code Quality Score</h2>
-
-<div class="score-number"
-id="score">0</div>
-
-<p id="grade"></p>
-
-</div>
-
-
-<div class="stats">
-
-<div class="stat">
-<strong id="lines">0</strong>
-<span>Lines</span>
-</div>
-
-<div class="stat">
-<strong id="bugs">0</strong>
-<span>Bugs</span>
-</div>
-
-<div class="stat">
-<strong id="security">0</strong>
-<span>Security Issues</span>
-</div>
-
-<div class="stat">
-<strong id="fixCount">0</strong>
-<span>Auto Fixes</span>
-</div>
-
-</div>
-
-
-<div class="card">
-
-<h2>
-<i class="fas fa-bug"></i>
-Detected Issues
-</h2>
-
-<div id="issues"></div>
-
-</div>
-
-
-<div class="card">
-
-<h2>
-<i class="fas fa-wand-magic-sparkles"></i>
-Automatic Fixes
-</h2>
-
-<div id="fixes"></div>
-
-</div>
-
-
-<div class="card">
-
-<h2>
-<i class="fas fa-terminal"></i>
-Execution Result
-</h2>
-
-<div class="debug-grid">
-
-<div class="debug-box">
-
-<h3>Status</h3>
-
-<p id="execStatus">-</p>
-
-</div>
-
-<div class="debug-box">
-
-<h3>Error Type</h3>
-
-<p id="errorType">-</p>
-
-</div>
-
-<div class="debug-box">
-
-<h3>Error Line</h3>
-
-<p id="errorLine">-</p>
-
-</div>
-
-</div>
-
-<br>
-
-<h3>Output</h3>
-
-<div class="code-box"
-id="output">
-No output
-</div>
-
-</div>
-
-
-<div class="card">
-
-<h2>
-<i class="fas fa-code"></i>
-Corrected Code
-</h2>
-
-<div class="code-box"
-id="fixedCode">
-No corrected code
-</div>
-
-</div>
-
-
-<div class="card verify">
-
-<h2>
-<i class="fas fa-shield-check"></i>
-Fix Verification
-</h2>
-
-<h2 id="verifyStatus">Waiting...</h2>
-
-<p id="verifyMessage"></p>
-
-</div>
-
-</div>
-
-</div>
-
 
 <footer class="footer">
-
-<p>
-<i class="fas fa-robot"></i>
-AI Code Review & Debugging System
-</p>
-
+    <p><i class="fas fa-robot"></i> AI Code Review &amp; Debugging System</p>
 </footer>
 
-
 <script>
+let uploadMode = false;
 
-let uploadMode=false;
-
-
-function showPaste(){
-
-uploadMode=false;
-
-document.getElementById("pasteBox").style.display="block";
-document.getElementById("uploadBox").classList.remove("active");
-
+function showPaste() {
+    uploadMode = false;
+    document.getElementById("pasteBox").style.display = "block";
+    document.getElementById("uploadBox").classList.remove("active");
+    document.getElementById("pasteTab").classList.add("active");
+    document.getElementById("uploadTab").classList.remove("active");
 }
 
-
-function showUpload(){
-
-uploadMode=true;
-
-document.getElementById("pasteBox").style.display="none";
-document.getElementById("uploadBox").classList.add("active");
-
+function showUpload() {
+    uploadMode = true;
+    document.getElementById("pasteBox").style.display = "none";
+    document.getElementById("uploadBox").classList.add("active");
+    document.getElementById("pasteTab").classList.remove("active");
+    document.getElementById("uploadTab").classList.add("active");
 }
 
-
-document.getElementById("fileInput").onchange=function(){
-
-if(this.files[0])
-document.getElementById("fileName").textContent=
-"Selected: "+this.files[0].name;
-
-};
-
-
-async function startDebug(){
-
-const btn=document.getElementById("debugBtn");
-
-let response;
-
-
-if(uploadMode){
-
-const file=document.getElementById("fileInput").files[0];
-
-if(!file){
-alert("Please upload a file.");
-return;
-}
-
-const form=new FormData();
-
-form.append("file",file);
-
-response=await fetch(
-"/upload-debug",
-{
-method:"POST",
-body:form
-}
-);
-
-}
-
-else{
-
-const code=document.getElementById("code").value;
-
-if(!code.trim()){
-alert("Please paste code.");
-return;
-}
-
-response=await fetch(
-"/debug",
-{
-method:"POST",
-headers:{
-"Content-Type":"application/json"
-},
-body:JSON.stringify({
-code:code,
-filename:"code.py"
-})
-}
-);
-
-}
-
-
-btn.disabled=true;
-
-document.getElementById("loader").style.display="block";
-
-try{
-
-const data=await response.json();
-
-if(!data.success){
-
-alert(data.error || "Debugging failed.");
-return;
-
-}
-
-showResults(data);
-
-}
-catch(error){
-
-alert("Server error.");
-
-}
-
-finally{
-
-btn.disabled=false;
-
-document.getElementById("loader").style.display="none";
-
-}
-
-}
-
-
-function showResults(data){
-
-const review=data.fixed_analysis.review;
-
-const bugs=
-data.original_analysis.review.bugs.bugs || [];
-
-const execution=data.execution || {};
-
-const verification=data.verification || {};
-
-document.getElementById("score").textContent=
-review.score ?? 0;
-
-document.getElementById("grade").textContent=
-review.grade || "";
-
-document.getElementById("lines").textContent=
-review.stats.total_lines || 0;
-
-document.getElementById("bugs").textContent=
-bugs.length;
-
-document.getElementById("security").textContent=
-(data.original_analysis.security.vulnerabilities || []).length;
-
-document.getElementById("fixCount").textContent=
-(data.fixes || []).length;
-
-
-const issueBox=document.getElementById("issues");
-
-issueBox.innerHTML="";
-
-
-if(!bugs.length){
-
-issueBox.innerHTML=
-"<p class='success'>✓ No bugs detected.</p>";
-
-}
-else{
-
-bugs.forEach(b=>{
-
-const sev=(b.severity || "medium").toLowerCase();
-
-issueBox.innerHTML+=`
-
-<div class="issue ${sev}">
-
-<span class="badge badge-${sev}">
-${b.severity}
-</span>
-
-<h3>${b.type}</h3>
-
-<p>${b.message}</p>
-
-<p>
-📍 Line: ${b.line}
-&nbsp; | &nbsp;
-Column: ${b.column || 1}
-</p>
-
-<p>
-<strong>Root Cause:</strong>
-${b.root_cause || "-"}
-</p>
-
-<p>
-<strong>Suggestion:</strong>
-${b.suggestion || "-"}
-</p>
-
-</div>
-
-`;
-
+document.getElementById("fileInput").addEventListener("change", function() {
+    if (this.files && this.files[0]) {
+        document.getElementById("fileName").textContent =
+            "Selected: " + this.files[0].name;
+    }
 });
 
+async function startDebug() {
+    const btn = document.getElementById("debugBtn");
+    const loader = document.getElementById("loader");
+
+    btn.disabled = true;
+    loader.style.display = "block";
+
+    try {
+        let response;
+
+        if (uploadMode) {
+            const file = document.getElementById("fileInput").files[0];
+
+            if (!file) {
+                alert("Please upload a file.");
+                return;
+            }
+
+            const form = new FormData();
+            form.append("file", file);
+
+            response = await fetch("/upload-debug", {
+                method: "POST",
+                body: form
+            });
+        } else {
+            const code = document.getElementById("code").value;
+            const stdinInput = document.getElementById("stdinInput").value;
+
+            if (!code.trim()) {
+                alert("Please paste code.");
+                return;
+            }
+
+            response = await fetch("/debug", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    code: code,
+                    filename: "code.py",
+                    stdin_input: stdinInput
+                })
+            });
+        }
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+            alert(data.error || "Debugging failed.");
+            return;
+        }
+
+        showResults(data);
+    } catch (error) {
+        console.error("Debug request failed:", error);
+        alert("Server or network error. Check the Flask terminal.");
+    } finally {
+        btn.disabled = false;
+        loader.style.display = "none";
+    }
 }
 
+function showResults(data) {
+    const originalReview = data.original_analysis?.review || {};
+    const fixedReview = data.fixed_analysis?.review || {};
+    const originalBugData = originalReview.bugs || {};
+    const bugs = originalBugData.bugs || [];
+    const execution = data.execution || {};
+    const verification = data.verification || {};
+    const fixesList = data.fixes || [];
+    const originalSecurity = data.original_analysis?.security || {};
+    const vulnerabilities = originalSecurity.vulnerabilities || [];
 
-const fixes=document.getElementById("fixes");
+    document.getElementById("originalScore").textContent = originalReview.score ?? 0;
+    document.getElementById("originalGrade").textContent = originalReview.grade || "-";
+    document.getElementById("score").textContent = fixedReview.score ?? 0;
+    document.getElementById("grade").textContent = fixedReview.grade || "-";
+    document.getElementById("lines").textContent = originalReview.stats?.total_lines ?? 0;
+    document.getElementById("bugs").textContent = bugs.length;
+    document.getElementById("security").textContent = vulnerabilities.length;
+    document.getElementById("fixCount").textContent = fixesList.length;
 
-fixes.innerHTML="";
+    const issueBox = document.getElementById("issues");
+    issueBox.replaceChildren();
 
-if(!(data.fixes || []).length){
+    if (!bugs.length && !vulnerabilities.length) {
+        const empty = document.createElement("p");
+        empty.className = "success";
+        empty.textContent = "No issues reported by the analysis.";
+        issueBox.appendChild(empty);
+    }
 
-fixes.innerHTML=
-"<p>No automatic fixes applied.</p>";
+    bugs.forEach(function(b) {
+        const severity = String(b.severity || "medium").toLowerCase();
+        const issue = document.createElement("div");
+        issue.className = "issue " + severity;
 
+        const badge = document.createElement("span");
+        badge.className = "badge badge-" + severity;
+        badge.textContent = b.severity || "medium";
+
+        const heading = document.createElement("h3");
+        heading.textContent = b.type || "Issue";
+
+        const message = document.createElement("p");
+        message.textContent = b.message || "";
+
+        const location = document.createElement("p");
+        location.textContent = "Line: " + (b.line ?? "Unknown") +
+            " | Column: " + (b.column ?? 1);
+
+        const root = document.createElement("p");
+        root.textContent = "Root Cause: " + (b.root_cause || "-");
+
+        const suggestion = document.createElement("p");
+        suggestion.textContent = "Suggestion: " + (b.suggestion || "-");
+
+        issue.append(badge, heading, message, location, root, suggestion);
+        issueBox.appendChild(issue);
+    });
+
+    vulnerabilities.forEach(function(v) {
+        const issue = document.createElement("div");
+        issue.className = "issue high";
+
+        const heading = document.createElement("h3");
+        heading.textContent = v.type || v.name || "Security Issue";
+
+        const message = document.createElement("p");
+        message.textContent = v.message || v.description ||
+            "Potential security issue detected.";
+
+        const location = document.createElement("p");
+        location.textContent = "Line: " + (v.line ?? "Unknown");
+
+        issue.append(heading, message, location);
+        issueBox.appendChild(issue);
+    });
+
+    const fixesBox = document.getElementById("fixes");
+    fixesBox.replaceChildren();
+
+    if (!fixesList.length) {
+        fixesBox.textContent = "No automatic fixes applied.";
+    } else {
+        fixesList.forEach(function(f) {
+            const item = document.createElement("div");
+            item.className = "issue low";
+
+            const heading = document.createElement("h3");
+            heading.textContent = "Fix: " + (f.type || "Automatic Fix");
+
+            const line = document.createElement("p");
+            line.textContent = "Line: " + (f.line ?? "Unknown");
+
+            const oldLabel = document.createElement("p");
+            oldLabel.textContent = "Original:";
+
+            const oldCode = document.createElement("div");
+            oldCode.className = "code-box";
+            oldCode.textContent = f.original || "";
+
+            const newLabel = document.createElement("p");
+            newLabel.textContent = "Fixed:";
+
+            const newCode = document.createElement("div");
+            newCode.className = "code-box";
+            newCode.textContent = f.fixed || "";
+
+            item.append(heading, line, oldLabel, oldCode, newLabel, newCode);
+            fixesBox.appendChild(item);
+        });
+    }
+
+    document.getElementById("execStatus").textContent =
+        execution.success ? "Execution Successful" : "Execution Failed";
+    document.getElementById("execStatus").className =
+        execution.success ? "success" : "error";
+
+    document.getElementById("errorType").textContent =
+        execution.error_type || "None";
+    document.getElementById("errorLine").textContent =
+        execution.error_line ?? "None";
+    document.getElementById("output").textContent =
+        execution.output || execution.error || "No output";
+    document.getElementById("fixedCode").textContent =
+        data.fixed_code || "No corrected code returned";
+
+    document.getElementById("verifyStatus").textContent =
+        verification.verified ? "VERIFIED" : "NOT VERIFIED";
+    document.getElementById("verifyStatus").className =
+        verification.verified ? "success" : "error";
+    document.getElementById("verifyMessage").textContent =
+        verification.message || "No verification details provided.";
+
+    document.getElementById("results").style.display = "block";
+    document.getElementById("results").scrollIntoView({behavior: "smooth"});
 }
-else{
-
-data.fixes.forEach(f=>{
-
-fixes.innerHTML+=`
-
-<div class="issue low">
-
-<h3>
-✓ ${f.type}
-</h3>
-
-<p>
-Line: ${f.line}
-</p>
-
-<p>
-<strong>Original:</strong>
-</p>
-
-<div class="code-box">
-${escapeHtml(f.original)}
-</div>
-
-<p>
-<strong>Fixed:</strong>
-</p>
-
-<div class="code-box">
-${escapeHtml(f.fixed)}
-</div>
-
-</div>
-
-`;
-
-});
-
-}
-
-
-document.getElementById("execStatus").innerHTML=
-execution.success
-? "<span class='success'>✓ Execution Successful</span>"
-: "<span class='error'>✗ Execution Failed</span>";
-
-document.getElementById("errorType").textContent=
-execution.error_type || "None";
-
-document.getElementById("errorLine").textContent=
-execution.error_line || "None";
-
-document.getElementById("output").textContent=
-execution.output || execution.error || "No output";
-
-document.getElementById("fixedCode").textContent=
-data.fixed_code || "";
-
-
-document.getElementById("verifyStatus").innerHTML=
-verification.verified
-? "<span class='success'>✓ VERIFIED</span>"
-: "<span class='error'>✗ NOT VERIFIED</span>";
-
-document.getElementById("verifyMessage").textContent=
-verification.message || "";
-
-
-document.getElementById("results").style.display="block";
-
-document.getElementById("results")
-.scrollIntoView({
-behavior:"smooth"
-});
-
-}
-
-
-function escapeHtml(text){
-
-return String(text || "")
-.replace(/&/g,"&amp;")
-.replace(/</g,"&lt;")
-.replace(/>/g,"&gt;")
-.replace(/"/g,"&quot;")
-.replace(/'/g,"&#039;");
-
-}
-
 </script>
-
 </body>
 </html>

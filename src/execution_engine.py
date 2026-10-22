@@ -1,3 +1,4 @@
+
 import os
 import re
 import subprocess
@@ -6,10 +7,6 @@ import sys
 
 
 class ExecutionEngine:
-
-    # Exact dangerous calls only.
-    # Do NOT use "eval(" because it also matches
-    # "ast.literal_eval(".
 
     DANGEROUS_PATTERNS = [
         r"\beval\s*\(",
@@ -20,35 +17,31 @@ class ExecutionEngine:
     ]
 
     def is_dangerous(self, code):
-
         for pattern in self.DANGEROUS_PATTERNS:
-
-            if re.search(
-                pattern,
-                code
-            ):
+            if re.search(pattern, code):
                 return pattern
-
         return None
 
-    def run(self, code, timeout=5):
+    def run(self, code, timeout=5, stdin_input=None):
 
-        # -------------------------------------------------
-        # SECURITY CHECK
-        # -------------------------------------------------
+        if not isinstance(code, str):
+            return {
+                "success": False,
+                "return_code": -1,
+                "output": "",
+                "error": "Code must be a string",
+                "error_type": "TypeError",
+                "error_line": None
+            }
 
         dangerous = self.is_dangerous(code)
 
         if dangerous:
-
             return {
                 "success": False,
                 "return_code": -2,
                 "output": "",
-                "error": (
-                    "Execution blocked: "
-                    "dangerous function detected"
-                ),
+                "error": "Execution blocked: dangerous function detected",
                 "error_type": "Security Block",
                 "error_line": None
             }
@@ -56,31 +49,18 @@ class ExecutionEngine:
         file_path = None
 
         try:
-
-            # ---------------------------------------------
-            # CREATE TEMPORARY PYTHON FILE
-            # ---------------------------------------------
-
             with tempfile.NamedTemporaryFile(
                 mode="w",
                 suffix=".py",
                 delete=False,
                 encoding="utf-8"
             ) as f:
-
                 f.write(code)
-
                 file_path = f.name
 
-            # ---------------------------------------------
-            # EXECUTE
-            # ---------------------------------------------
-
             result = subprocess.run(
-                [
-                    sys.executable,
-                    file_path
-                ],
+                [sys.executable, file_path],
+                input=stdin_input,
                 capture_output=True,
                 text=True,
                 timeout=timeout
@@ -89,12 +69,7 @@ class ExecutionEngine:
             stderr = result.stderr.strip()
             stdout = result.stdout.strip()
 
-            # ---------------------------------------------
-            # SUCCESS
-            # ---------------------------------------------
-
             if result.returncode == 0:
-
                 return {
                     "success": True,
                     "return_code": result.returncode,
@@ -103,10 +78,6 @@ class ExecutionEngine:
                     "error_type": None,
                     "error_line": None
                 }
-
-            # ---------------------------------------------
-            # ERROR ANALYSIS
-            # ---------------------------------------------
 
             error_type = None
             error_line = None
@@ -118,24 +89,16 @@ class ExecutionEngine:
             )
 
             if traceback_matches:
-
-                error_line = int(
-                    traceback_matches[-1]
-                )
+                error_line = int(traceback_matches[-1])
 
             if stderr:
-
-                last_line = (
-                    stderr.splitlines()[-1]
-                )
-
+                last_line = stderr.splitlines()[-1]
                 match = re.match(
                     r"([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Warning)):\s*(.*)",
                     last_line
                 )
 
                 if match:
-
                     error_type = match.group(1)
                     error_message = match.group(2)
 
@@ -148,12 +111,7 @@ class ExecutionEngine:
                 "error_line": error_line
             }
 
-        # ---------------------------------------------
-        # TIMEOUT
-        # ---------------------------------------------
-
         except subprocess.TimeoutExpired:
-
             return {
                 "success": False,
                 "return_code": -1,
@@ -163,12 +121,7 @@ class ExecutionEngine:
                 "error_line": None
             }
 
-        # ---------------------------------------------
-        # OTHER ERROR
-        # ---------------------------------------------
-
         except Exception as e:
-
             return {
                 "success": False,
                 "return_code": -1,
@@ -178,15 +131,9 @@ class ExecutionEngine:
                 "error_line": None
             }
 
-        # ---------------------------------------------
-        # CLEANUP
-        # ---------------------------------------------
-
         finally:
-
-            if (
-                file_path
-                and os.path.exists(file_path)
-            ):
-
-                os.remove(file_path)
+            if file_path and os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except OSError:
+                    pass

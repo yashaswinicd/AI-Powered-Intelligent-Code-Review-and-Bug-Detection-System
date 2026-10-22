@@ -1,186 +1,279 @@
+
+import ast
 import re
-import os
-import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 
 class SecurityChecker:
+    """Rule-based security checks for source code."""
+
     def __init__(self):
         self.vulnerabilities = []
 
-    # =============================
-    # Check SQL Injection
-    # =============================
+    @staticmethod
+    def _add_issue(issues, issue_type, line, severity, message, suggestion):
+        issues.append({
+            "type": issue_type,
+            "line": line,
+            "severity": severity,
+            "message": message,
+            "suggestion": suggestion,
+        })
+
+    # ---------------------------------------------------------
+    # SQL INJECTION
+    # ---------------------------------------------------------
     def check_sql_injection(self, code):
         issues = []
-        patterns = [
-            r'execute\s*\(\s*["\'].*%s',
-            r'execute\s*\(\s*f["\']',
-            r'cursor\.execute\s*\(.*\+',
+        sql_keywords = re.compile(
+            r"\b(?:SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|UNION)\b",
+            re.IGNORECASE,
+        )
+
+        dynamic_patterns = [
+            re.compile(r"""f\s*["']""", re.IGNORECASE),
+            re.compile(r"""["'][^"']*["']\s*\+\s*[A-Za-z_]"""),
+            re.compile(r"""\+\s*[A-Za-z_]\w*\s*\+\s*["']"""),
+            re.compile(r"""["'][^"']*["']\s*%\s*[A-Za-z_(]"""),
+            re.compile(r"""\.format\s*\("""),
         ]
-        lines = code.splitlines()
-        for i, line in enumerate(lines, 1):
-            for pattern in patterns:
-                if re.search(pattern, line, re.IGNORECASE):
-                    issues.append({
-                        'type': 'SQL Injection Risk',
-                        'line': i,
-                        'severity': 'CRITICAL',
-                        'message': 'Possible SQL injection vulnerability detected',
-                        'suggestion': 'Use parameterized queries instead of string formatting'
-                    })
+
+        for line_number, line in enumerate(code.splitlines(), 1):
+            if not sql_keywords.search(line):
+                continue
+
+            if any(pattern.search(line) for pattern in dynamic_patterns):
+                self._add_issue(
+                    issues,
+                    "SQL Injection Risk",
+                    line_number,
+                    "CRITICAL",
+                    "SQL statement may include dynamically concatenated "
+                    "or formatted input.",
+                    "Use parameterized queries instead of building SQL "
+                    "with string concatenation or formatting.",
+                )
+
         return issues
 
-    # =============================
-    # Check XSS Vulnerability
-    # =============================
+    # ---------------------------------------------------------
+    # CROSS-SITE SCRIPTING (XSS)
+    # ---------------------------------------------------------
     def check_xss(self, code):
         issues = []
         patterns = [
-            r'innerHTML\s*=',
-            r'document\.write\s*\(',
-            r'eval\s*\(',
+            r"\binnerHTML\s*=",
+            r"\bdocument\.write\s*\(",
+            r"\binsertAdjacentHTML\s*\(",
         ]
-        lines = code.splitlines()
-        for i, line in enumerate(lines, 1):
-            for pattern in patterns:
-                if re.search(pattern, line, re.IGNORECASE):
-                    issues.append({
-                        'type': 'XSS Vulnerability',
-                        'line': i,
-                        'severity': 'HIGH',
-                        'message': 'Possible Cross-Site Scripting (XSS) vulnerability',
-                        'suggestion': 'Sanitize user input before rendering in HTML'
-                    })
+
+        for line_number, line in enumerate(code.splitlines(), 1):
+            if any(re.search(p, line, re.IGNORECASE) for p in patterns):
+                self._add_issue(
+                    issues,
+                    "XSS Vulnerability",
+                    line_number,
+                    "HIGH",
+                    "Potential unsafe HTML insertion sink detected.",
+                    "Avoid inserting untrusted data as HTML. Prefer "
+                    "textContent or use a suitable HTML sanitizer.",
+                )
+
         return issues
 
-    # =============================
-    # Check Weak Cryptography
-    # =============================
+    # ---------------------------------------------------------
+    # WEAK CRYPTOGRAPHY
+    # ---------------------------------------------------------
     def check_weak_crypto(self, code):
         issues = []
-        weak_algos = ['md5', 'sha1', 'des', 'rc4']
-        lines = code.splitlines()
-        for i, line in enumerate(lines, 1):
-            for algo in weak_algos:
-                if algo in line.lower():
-                    issues.append({
-                        'type': 'Weak Cryptography',
-                        'line': i,
-                        'severity': 'HIGH',
-                        'message': f'Weak algorithm "{algo.upper()}" detected',
-                        'suggestion': 'Use SHA-256 or stronger algorithms'
-                    })
+        patterns = [
+            (r"\bmd5\b", "MD5"),
+            (r"\bsha1\b", "SHA1"),
+            (r"\bdes\b", "DES"),
+            (r"\brc4\b", "RC4"),
+        ]
+
+        for line_number, line in enumerate(code.splitlines(), 1):
+            for pattern, algorithm in patterns:
+                if re.search(pattern, line, re.IGNORECASE):
+                    self._add_issue(
+                        issues,
+                        "Weak Cryptography",
+                        line_number,
+                        "HIGH",
+                        f'Potential use of weak algorithm "{algorithm}".',
+                        "Choose a modern cryptographic algorithm suitable "
+                        "for the task. Passwords should use a password "
+                        "hashing algorithm such as Argon2id or bcrypt.",
+                    )
+                    break
+
         return issues
 
-    # =============================
-    # Check Hardcoded IPs
-    # =============================
+    # ---------------------------------------------------------
+    # HARDCODED IP ADDRESSES
+    # ---------------------------------------------------------
     def check_hardcoded_ips(self, code):
         issues = []
-        ip_pattern = r'\b(?:\d{1,3}\.){3}\d{1,3}\b'
-        lines = code.splitlines()
-        for i, line in enumerate(lines, 1):
-            if re.search(ip_pattern, line):
-                if '127.0.0.1' not in line and '0.0.0.0' not in line:
-                    issues.append({
-                        'type': 'Hardcoded IP Address',
-                        'line': i,
-                        'severity': 'MEDIUM',
-                        'message': 'Hardcoded IP address found',
-                        'suggestion': 'Use config file or environment variables'
-                    })
+        ip_pattern = (
+            r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
+        )
+
+        for line_number, line in enumerate(code.splitlines(), 1):
+            for match in re.finditer(ip_pattern, line):
+                ip = match.group(0)
+
+                if ip in {"127.0.0.1", "0.0.0.0"}:
+                    continue
+
+                octets = ip.split(".")
+                if not all(0 <= int(part) <= 255 for part in octets):
+                    continue
+
+                self._add_issue(
+                    issues,
+                    "Hardcoded IP Address",
+                    line_number,
+                    "MEDIUM",
+                    f"Hardcoded IP address detected: {ip}.",
+                    "Move environment-specific addresses into configuration "
+                    "or environment variables when appropriate.",
+                )
+                break
+
         return issues
 
-    # =============================
-    # Check Dangerous Functions
-    # =============================
+    # ---------------------------------------------------------
+    # DANGEROUS FUNCTIONS
+    # ---------------------------------------------------------
     def check_dangerous_functions(self, code):
         issues = []
-        dangerous = {
-            'eval(': 'Code injection risk via eval()',
-            'exec(': 'Code injection risk via exec()',
-            'os.system(': 'Shell injection risk via os.system()',
-            'subprocess.call(': 'Shell injection via subprocess',
-            'pickle.loads(': 'Unsafe deserialization via pickle',
-        }
-        lines = code.splitlines()
-        for i, line in enumerate(lines, 1):
-            for func, message in dangerous.items():
-                if func in line:
-                    issues.append({
-                        'type': 'Dangerous Function',
-                        'line': i,
-                        'severity': 'HIGH',
-                        'message': message,
-                        'suggestion': f'Avoid using {func} with untrusted input'
-                    })
+
+        patterns = [
+            (
+                r"\beval\s*\(",
+                "Code injection risk via eval().",
+                "Avoid eval() on untrusted input. Prefer explicit parsing "
+                "or a restricted data format.",
+            ),
+            (
+                r"\bexec\s*\(",
+                "Dynamic code execution risk via exec().",
+                "Avoid executing dynamically constructed code, especially "
+                "when it contains untrusted input.",
+            ),
+            (
+                r"\bos\.system\s*\(",
+                "Potential shell command injection via os.system().",
+                "Prefer subprocess APIs with argument lists and avoid "
+                "passing untrusted input to a shell.",
+            ),
+            (
+                r"\bsubprocess\.(?:call|run|Popen)\s*\(",
+                "Subprocess execution requires security review.",
+                "Avoid shell=True with untrusted input and validate "
+                "arguments carefully.",
+            ),
+            (
+                r"\bpickle\.loads?\s*\(",
+                "Unsafe deserialization risk via pickle.",
+                "Never unpickle data from untrusted sources. Use a safer "
+                "data format when possible.",
+            ),
+        ]
+
+        for line_number, line in enumerate(code.splitlines(), 1):
+            for pattern, message, suggestion in patterns:
+                if re.search(pattern, line):
+                    self._add_issue(
+                        issues,
+                        "Dangerous Function",
+                        line_number,
+                        "HIGH",
+                        message,
+                        suggestion,
+                    )
+
         return issues
 
-    # =============================
-    # Check Open Redirects
-    # =============================
+    # ---------------------------------------------------------
+    # OPEN REDIRECTS
+    # ---------------------------------------------------------
     def check_open_redirects(self, code):
         issues = []
         patterns = [
-            r'redirect\s*\(\s*request\.',
-            r'redirect\s*\(\s*url_for.*request\.',
+            r"\bredirect\s*\(\s*request\.",
+            r"\bredirect\s*\(\s*url_for\s*\([^)]*request\.",
         ]
-        lines = code.splitlines()
-        for i, line in enumerate(lines, 1):
-            for pattern in patterns:
-                if re.search(pattern, line, re.IGNORECASE):
-                    issues.append({
-                        'type': 'Open Redirect',
-                        'line': i,
-                        'severity': 'MEDIUM',
-                        'message': 'Possible open redirect vulnerability',
-                        'suggestion': 'Validate redirect URLs before redirecting'
-                    })
+
+        for line_number, line in enumerate(code.splitlines(), 1):
+            if any(re.search(p, line, re.IGNORECASE) for p in patterns):
+                self._add_issue(
+                    issues,
+                    "Open Redirect",
+                    line_number,
+                    "MEDIUM",
+                    "Possible redirect using request-controlled data.",
+                    "Validate redirect destinations against trusted local "
+                    "URLs or an allowlist.",
+                )
+
         return issues
 
-    # =============================
-    # Main Security Check Function
-    # =============================
+    # ---------------------------------------------------------
+    # MAIN CHECK
+    # ---------------------------------------------------------
     def check(self, code):
-        self.vulnerabilities = []
+        if not isinstance(code, str):
+            code = ""
 
-        self.vulnerabilities += self.check_sql_injection(code)
-        self.vulnerabilities += self.check_xss(code)
-        self.vulnerabilities += self.check_weak_crypto(code)
-        self.vulnerabilities += self.check_hardcoded_ips(code)
-        self.vulnerabilities += self.check_dangerous_functions(code)
-        self.vulnerabilities += self.check_open_redirects(code)
+        issues = []
+        checks = [
+            self.check_sql_injection,
+            self.check_xss,
+            self.check_weak_crypto,
+            self.check_hardcoded_ips,
+            self.check_dangerous_functions,
+            self.check_open_redirects,
+        ]
 
-        summary = {
-            'total_vulnerabilities': len(self.vulnerabilities),
-            'critical': sum(1 for v in self.vulnerabilities if v['severity'] == 'CRITICAL'),
-            'high': sum(1 for v in self.vulnerabilities if v['severity'] == 'HIGH'),
-            'medium': sum(1 for v in self.vulnerabilities if v['severity'] == 'MEDIUM'),
-            'vulnerabilities': self.vulnerabilities
+        for check_function in checks:
+            issues.extend(check_function(code))
+
+        self.vulnerabilities = issues
+
+        return {
+            "total_vulnerabilities": len(issues),
+            "critical": sum(
+                issue["severity"] == "CRITICAL" for issue in issues
+            ),
+            "high": sum(
+                issue["severity"] == "HIGH" for issue in issues
+            ),
+            "medium": sum(
+                issue["severity"] == "MEDIUM" for issue in issues
+            ),
+            "vulnerabilities": issues,
         }
-        return summary
 
 
-# =============================
-# Test maadalu
-# =============================
 if __name__ == "__main__":
     checker = SecurityChecker()
 
     sample_code = '''
-import hashlib
-import pickle
-import os
-
-def login(user_input):
-    query = "SELECT * FROM users WHERE id = %s" % user_input
-    cursor.execute(query)
-    hash = hashlib.md5(password.encode())
-    eval(user_input)
-    os.system("ls " + user_input)
+username = input("Username: ")
+query = "SELECT * FROM users WHERE username = '" + username + "'"
+eval(username)
+element.innerHTML = username
 '''
+
     result = checker.check(sample_code)
-    print(f"✅ Security Check Complete!")
-    print(f"🔒 Total Vulnerabilities: {result['total_vulnerabilities']}")
-    for v in result['vulnerabilities']:
-        print(f"  [{v['severity']}] Line {v['line']}: {v['type']}")
+
+    print("Security Check Complete!")
+    print("Total vulnerabilities:", result["total_vulnerabilities"])
+
+    for issue in result["vulnerabilities"]:
+        print(
+            f"[{issue['severity']}] "
+            f"Line {issue['line']}: {issue['type']} - "
+            f"{issue['message']}"
+        )
