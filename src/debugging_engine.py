@@ -1,12 +1,14 @@
+
 import ast
 import re
+import difflib
 
 from src.bug_detector import BugDetector
 from src.security_checker import SecurityChecker
 
 
 class DebuggingEngine:
-    """Conservative Python debugging and source-preserving fix engine."""
+    """Conservative Python debugging and auto-fix engine."""
 
     def __init__(self):
         self.fixes = []
@@ -27,10 +29,10 @@ class DebuggingEngine:
 
     def analyze_all(self, code):
         try:
-            bug_result = BugDetector().detect(code)
-            normal_bugs = bug_result.get("bugs", [])
+            result = BugDetector().detect(code)
+            normal_bugs = result.get("bugs", [])
         except Exception as exc:
-            return [{
+            normal_bugs = [{
                 "type": "Analysis Error",
                 "line": 1,
                 "column": 1,
@@ -39,8 +41,8 @@ class DebuggingEngine:
             }]
 
         try:
-            security_result = SecurityChecker().check(code)
-            security_bugs = security_result.get("vulnerabilities", [])
+            result = SecurityChecker().check(code)
+            security_bugs = result.get("vulnerabilities", [])
         except Exception as exc:
             security_bugs = [{
                 "type": "Security Analysis Error",
@@ -74,21 +76,18 @@ class DebuggingEngine:
         except (SyntaxError, ValueError, TypeError, RecursionError):
             return False
 
-    # ---------------------------------------------------------
-    # SOURCE-PRESERVING LINE REPLACEMENT
-    # ---------------------------------------------------------
-
     @staticmethod
     def replace_line(code, line_number, replacement):
-        """Replace one line without discarding the remaining source."""
         lines = code.splitlines(keepends=True)
 
         if not 1 <= line_number <= len(lines):
             return code
 
         old_line = lines[line_number - 1]
-        newline = "\r\n" if old_line.endswith("\r\n") else (
-            "\n" if old_line.endswith("\n") else ""
+        newline = (
+            "\r\n" if old_line.endswith("\r\n")
+            else "\n" if old_line.endswith("\n")
+            else ""
         )
 
         lines[line_number - 1] = replacement.rstrip("\r\n") + newline
@@ -100,6 +99,90 @@ class DebuggingEngine:
 
     def fix_division(self, code, bug):
         line_number = bug.get("line", 0)
+
+        try:
+            tree = ast.parse(code)
+        except (SyntaxError, ValueError, TypeError, RecursionError):
+            return code
+
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.BinOp)
+                and isinstance(node.op, ast.Div)
+                and isinstance(node.right, ast.Constant)
+                and isinstance(node.right.value, (int, float))
+                and not isinstance(node.right.value, bool)
+                and node.right.value == 0
+                and node.lineno == line_number
+            ):
+                bug["manual_review_required"] = True
+                bug["suggestion"] = (
+                    "The divisor is zero. Choose the intended non-zero "
+                    "value or add suitable error handling."
+                )
+                return code
+
+        return code
+
+    # ---------------------------------------------------------
+    # UNDEFINED VARIABLE AUTO-FIX
+    # ---------------------------------------------------------
+
+    def fix_undefined(self, code, bug):
+        line_number = bug.get("line", 0)
+
+        try:
+            tree = ast.parse(code)
+        except (SyntaxError, ValueError, TypeError, RecursionError):
+            return code
+
+        defined_names = set()
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                defined_names.add(node.id)
+
+            elif isinstance(node, ast.arg):
+                defined_names.add(node.arg)
+
+            elif isinstance(
+                node,
+                (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+            ):
+                defined_names.add(node.name)
+
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                for alias in node.names:
+                    defined_names.add(
+                        alias.asname or alias.name.split(".")[0]
+                    )
+
+        message = bug.get("message", "")
+        match = re.search(
+            r"Variable ['\"]([A-Za-z_]\w*)['\"]",
+            message
+        )
+
+        if not match:
+            return code
+
+        undefined_name = match.group(1)
+
+        # Do not replace a name with itself.
+        defined_names.discard(undefined_name)
+
+        candidates = difflib.get_close_matches(
+            undefined_name,
+            sorted(defined_names),
+            n=2,
+            cutoff=0.75
+        )
+
+        # Only fix when there is exactly one close candidate.
+        if len(candidates) != 1:
+            return code
+
+        replacement_name = candidates[0]
         lines = code.splitlines()
 
         if not 1 <= line_number <= len(lines):
@@ -107,48 +190,35 @@ class DebuggingEngine:
 
         old_line = lines[line_number - 1]
 
-        # A literal zero does not reveal the intended divisor.
-        # Never silently replace it with an arbitrary value.
-        try:
-            tree = ast.parse(code)
-        except (SyntaxError, ValueError, TypeError, RecursionError):
+        new_line = re.sub(
+            rf"\b{re.escape(undefined_name)}\b",
+            replacement_name,
+            old_line
+        )
+
+        if new_line == old_line:
             return code
 
-        target_nodes = [
-            node for node in ast.walk(tree)
-            if isinstance(node, ast.BinOp)
-            and isinstance(node.op, ast.Div)
-            and isinstance(node.right, ast.Constant)
-            and isinstance(node.right.value, (int, float))
-            and not isinstance(node.right.value, bool)
-            and node.right.value == 0
-            and getattr(node, "lineno", None) == line_number
-        ]
+        candidate_code = self.replace_line(
+            code, line_number, new_line
+        )
 
-        if target_nodes:
-            # Report honestly that human intent is needed.
-            bug["manual_review_required"] = True
-            bug["suggestion"] = (
-                "The divisor is literal zero. Choose the intended non-zero "
-                "divisor or add explicit error handling; no value was guessed."
-            )
+        if not self.is_valid_python(candidate_code):
             return code
 
-        # For a variable divisor, a guard may prevent the crash,
-        # but it does not infer the application's intended behavior.
-        return code
+        self.add_fix(
+            bug,
+            old_line,
+            new_line,
+            f"Suggested variable-name correction: "
+            f"{undefined_name} -> {replacement_name}."
+        )
+
+        return candidate_code
 
     # ---------------------------------------------------------
-    # OTHER FIXES
+    # SYNTAX FIX
     # ---------------------------------------------------------
-
-    def fix_index(self, code, bug):
-        # Automatic index correction can change intended program behavior.
-        return code
-
-    def fix_undefined(self, code, bug):
-        # The correct variable name cannot reliably be inferred.
-        return code
 
     def fix_syntax(self, code, bug):
         line_number = bug.get("line", 1)
@@ -162,7 +232,7 @@ class DebuggingEngine:
 
         block_keywords = (
             "if ", "elif ", "else", "for ", "while ",
-            "def ", "class ", "try", "except", "finally", "with ",
+            "def ", "class ", "try", "except", "finally", "with "
         )
 
         if not stripped.startswith(block_keywords):
@@ -171,9 +241,8 @@ class DebuggingEngine:
         if stripped.endswith(":"):
             return code
 
-        candidate = self.replace_line(
-            code, line_number, old_line.rstrip() + ":"
-        )
+        new_line = old_line.rstrip() + ":"
+        candidate = self.replace_line(code, line_number, new_line)
 
         if candidate == code or not self.is_valid_python(candidate):
             return code
@@ -181,25 +250,27 @@ class DebuggingEngine:
         self.add_fix(
             bug,
             old_line,
-            candidate.splitlines()[line_number - 1],
-            "Added a missing colon and validated Python syntax.",
+            new_line,
+            "Added a missing colon and validated Python syntax."
         )
+
         return candidate
 
+    # ---------------------------------------------------------
+    # OTHER CONSERVATIVE FIXES
+    # ---------------------------------------------------------
+
+    def fix_index(self, code, bug):
+        return code
+
     def fix_eval(self, code, bug):
-        # Replacing eval safely requires knowing the intended data format.
         return code
 
     def fix_dangerous_function(self, code, bug):
         return self.fix_eval(code, bug)
 
     def fix_xss(self, code, bug):
-        # Correct escaping depends on the output context.
         return code
-
-    # ---------------------------------------------------------
-    # APPLY ONE FIX
-    # ---------------------------------------------------------
 
     def apply_fix(self, code, bug):
         bug_type = bug.get("type", "")
@@ -251,11 +322,9 @@ class DebuggingEngine:
         original_code = code
         current_code = code
 
-        # One conservative syntax repair attempt.
+        # Attempt a conservative syntax repair.
         if not self.is_valid_python(current_code):
-            syntax_bugs = self.analyze_all(current_code)
-
-            for bug in syntax_bugs:
+            for bug in self.analyze_all(current_code):
                 if bug.get("type") != "Syntax Error":
                     continue
 
@@ -268,12 +337,13 @@ class DebuggingEngine:
                     current_code = candidate
                     break
 
-        # Re-analyze after each accepted fix.
+        # Apply one fix at a time and re-analyze.
         for _ in range(self.max_iterations):
             if not self.is_valid_python(current_code):
                 break
 
             detected_bugs = self.analyze_all(current_code)
+
             if not detected_bugs:
                 break
 
@@ -298,7 +368,7 @@ class DebuggingEngine:
         remaining_bugs = self.analyze_all(current_code)
         syntax_valid = self.is_valid_python(current_code)
 
-        # Static analysis alone cannot prove runtime correctness.
+        # This is static verification, not proof of runtime correctness.
         verified = syntax_valid and len(remaining_bugs) == 0
 
         return {

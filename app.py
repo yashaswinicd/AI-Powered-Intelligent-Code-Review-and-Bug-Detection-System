@@ -1,3 +1,4 @@
+
 import os
 import threading
 import webbrowser
@@ -35,7 +36,7 @@ verifier = VerificationEngine()
 
 
 # =========================================================
-# ANALYSIS
+# CODE ANALYSIS
 # =========================================================
 
 def analyze(code, filename):
@@ -45,73 +46,98 @@ def analyze(code, filename):
     }
 
 
+def collect_issues(analysis):
+    """Combine review bugs and security vulnerabilities safely."""
+    review_data = analysis.get("review", {})
+    bug_data = review_data.get("bugs", {})
+    bugs = bug_data.get("bugs", []) if isinstance(bug_data, dict) else []
+
+    security_data = analysis.get("security", {})
+    vulnerabilities = security_data.get("vulnerabilities", [])
+
+    if not isinstance(bugs, list):
+        bugs = []
+
+    if not isinstance(vulnerabilities, list):
+        vulnerabilities = []
+
+    return bugs + vulnerabilities
+
+
 # =========================================================
 # DEBUGGING + AUTO FIX
 # =========================================================
 
 def debug_code(code, filename):
-    original = analyze(code, filename)
+    original_analysis = analyze(code, filename)
 
-    current = code
-    fixes = []
+    current_code = code
+    all_fixes = []
+    max_iterations = 10
 
-    for _ in range(10):
-        result = analyze(current, filename)
+    for _ in range(max_iterations):
+        current_analysis = analyze(current_code, filename)
+        current_issues = collect_issues(current_analysis)
 
-        bugs = (
-            result["review"]["bugs"]["bugs"]
-            + result["security"]["vulnerabilities"]
-        )
-
-        if not bugs:
+        if not current_issues:
             break
 
-        fixed = debugger.fix(current, bugs)
-        new_code = fixed["fixed_code"]
+        # DebuggingEngine performs its own detailed analysis.
+        fixed_result = debugger.fix(current_code)
 
-        fixes.extend(fixed.get("fixes", []))
+        if not isinstance(fixed_result, dict):
+            break
 
-        # Prevent infinite loops and repeated unchanged code.
-        if new_code == current:
+        candidate_code = fixed_result.get("fixed_code", current_code)
+        iteration_fixes = fixed_result.get("fixes", [])
+
+        if not isinstance(candidate_code, str):
+            break
+
+        if not isinstance(iteration_fixes, list):
+            iteration_fixes = []
+
+        # Stop if no code change was produced.
+        if candidate_code == current_code:
             break
 
         # Accept only syntactically valid Python changes.
         if filename.lower().endswith(".py"):
-            if not debugger.is_valid_python(new_code):
+            if not debugger.is_valid_python(candidate_code):
+                app.logger.warning(
+                    "Rejected auto-fix because Python syntax validation failed."
+                )
                 break
 
-        current = new_code
+        all_fixes.extend(iteration_fixes)
+        current_code = candidate_code
 
-    final = analyze(current, filename)
+    # Analyze the final code again after all accepted changes.
+    final_analysis = analyze(current_code, filename)
+    remaining_issues = collect_issues(final_analysis)
 
-    remaining = (
-        final["review"]["bugs"]["bugs"]
-        + final["security"]["vulnerabilities"]
-    )
+    # Run code only through the configured execution engine.
+    execution_result = executor.run(current_code)
 
-    # Execute only through the configured execution engine.
-    execution = executor.run(current)
+    original_issues = collect_issues(original_analysis)
 
-    original_bugs = (
-        original["review"]["bugs"]["bugs"]
-        + original["security"]["vulnerabilities"]
-    )
-
-    verification = verifier.verify(
-        original_bugs,
-        remaining,
-        execution,
+    verification_result = verifier.verify(
+        original_issues,
+        remaining_issues,
+        execution_result,
     )
 
     return {
         "filename": filename,
         "original_code": code,
-        "fixed_code": current,
-        "original_analysis": original,
-        "fixed_analysis": final,
-        "fixes": fixes,
-        "execution": execution,
-        "verification": verification,
+        "fixed_code": current_code,
+        "original_analysis": original_analysis,
+        "fixed_analysis": final_analysis,
+        "fixes": all_fixes,
+        "total_fixes": len(all_fixes),
+        "remaining_bugs": remaining_issues,
+        "execution": execution_result,
+        "verification": verification_result,
     }
 
 
@@ -159,17 +185,18 @@ def analyze_api():
 
     try:
         validate_code(code, filename)
+        result = analyze(code, filename)
 
         return jsonify({
             "success": True,
-            **analyze(code, filename),
+            **result,
         })
 
-    except Exception as exc:
+    except Exception:
         app.logger.exception("Code analysis failed")
         return jsonify({
             "success": False,
-            "error": str(exc),
+            "error": "Code analysis failed. Check the server terminal for details.",
         }), 400
 
 
@@ -198,17 +225,18 @@ def debug_api():
 
     try:
         validate_code(code, filename)
+        result = debug_code(code, filename)
 
         return jsonify({
             "success": True,
-            **debug_code(code, filename),
+            **result,
         })
 
-    except Exception as exc:
+    except Exception:
         app.logger.exception("Debugging request failed")
         return jsonify({
             "success": False,
-            "error": str(exc),
+            "error": "Debugging failed. Check the server terminal for details.",
         }), 400
 
 
@@ -224,38 +252,39 @@ def upload_debug():
             "error": "No file uploaded",
         }), 400
 
+    uploaded_file = request.files["file"]
+
+    if not uploaded_file.filename:
+        return jsonify({
+            "success": False,
+            "error": "Choose a file first",
+        }), 400
+
     path = None
 
     try:
-        uploaded_file = request.files["file"]
-
-        if not uploaded_file.filename:
-            return jsonify({
-                "success": False,
-                "error": "Choose a file first",
-            }), 400
-
         path = save_uploaded_file(uploaded_file)
         code = read_uploaded_file(path)
         filename = os.path.basename(uploaded_file.filename)
 
         validate_code(code, filename)
+        result = debug_code(code, filename)
 
         return jsonify({
             "success": True,
-            **debug_code(code, filename),
+            **result,
         })
 
-    except Exception as exc:
+    except Exception:
         app.logger.exception("File upload/debugging failed")
         return jsonify({
             "success": False,
-            "error": str(exc),
+            "error": "File debugging failed. Check the server terminal for details.",
         }), 400
 
     finally:
-        # Temporary-file cleanup depends on the file handler's
-        # storage contract; do not delete files here blindly.
+        # Do not delete the file here until the file handler's
+        # temporary-file storage contract is confirmed.
         pass
 
 
@@ -272,7 +301,7 @@ def health():
 
 
 # =========================================================
-# START SERVER + OPEN BROWSER
+# START SERVER
 # =========================================================
 
 if __name__ == "__main__":
@@ -284,7 +313,6 @@ if __name__ == "__main__":
     print("Execution: ENABLED")
     print("Auto-fix: ENABLED")
     print(f"Website: {URL}")
-    print("Opening browser automatically...")
     print("=" * 55)
 
     threading.Timer(
