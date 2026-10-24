@@ -1,5 +1,4 @@
-﻿
-import os
+﻿import os
 import threading
 import webbrowser
 
@@ -22,7 +21,6 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
 
 URL = "http://127.0.0.1:5000"
-
 
 # =========================================================
 # ENGINE INITIALIZATION
@@ -47,10 +45,15 @@ def analyze(code, filename):
 
 
 def collect_issues(analysis):
-    """Combine review bugs and security vulnerabilities safely."""
+    """Combine review bugs and security vulnerabilities."""
     review_data = analysis.get("review", {})
     bug_data = review_data.get("bugs", {})
-    bugs = bug_data.get("bugs", []) if isinstance(bug_data, dict) else []
+
+    bugs = (
+        bug_data.get("bugs", [])
+        if isinstance(bug_data, dict)
+        else []
+    )
 
     security_data = analysis.get("security", {})
     vulnerabilities = security_data.get("vulnerabilities", [])
@@ -65,7 +68,7 @@ def collect_issues(analysis):
 
 
 # =========================================================
-# DEBUGGING + AUTO FIX
+# DEBUGGING + EXECUTION
 # =========================================================
 
 def debug_code(code, filename, stdin_input=None):
@@ -73,7 +76,13 @@ def debug_code(code, filename, stdin_input=None):
 
     current_code = code
     all_fixes = []
-    max_iterations = 10
+
+    extension = os.path.splitext(filename)[1].lower()
+    is_python = extension == ".py"
+    is_java = extension == ".java"
+
+    # Existing auto-fix engine only supports Python.
+    max_iterations = 10 if is_python else 0
 
     for _ in range(max_iterations):
         current_analysis = analyze(current_code, filename)
@@ -82,13 +91,14 @@ def debug_code(code, filename, stdin_input=None):
         if not current_issues:
             break
 
-        # DebuggingEngine performs its own detailed analysis.
         fixed_result = debugger.fix(current_code)
 
         if not isinstance(fixed_result, dict):
             break
 
-        candidate_code = fixed_result.get("fixed_code", current_code)
+        candidate_code = fixed_result.get(
+            "fixed_code", current_code
+        )
         iteration_fixes = fixed_result.get("fixes", [])
 
         if not isinstance(candidate_code, str):
@@ -97,35 +107,65 @@ def debug_code(code, filename, stdin_input=None):
         if not isinstance(iteration_fixes, list):
             iteration_fixes = []
 
-        # Stop if no code change was produced.
         if candidate_code == current_code:
             break
 
-        # Accept only syntactically valid Python changes.
-        if filename.lower().endswith(".py"):
-            if not debugger.is_valid_python(candidate_code):
-                app.logger.warning(
-                    "Rejected auto-fix because Python syntax validation failed."
-                )
-                break
+        # Validate Python fixes before accepting them.
+        if is_python and not debugger.is_valid_python(candidate_code):
+            app.logger.warning(
+                "Rejected auto-fix: Python syntax validation failed."
+            )
+            break
 
         all_fixes.extend(iteration_fixes)
         current_code = candidate_code
 
-    # Analyze the final code again after all accepted changes.
     final_analysis = analyze(current_code, filename)
+    original_issues = collect_issues(original_analysis)
     remaining_issues = collect_issues(final_analysis)
 
-    # Run code only through the configured execution engine.
-    execution_result = executor.run(current_code, stdin_input=stdin_input)
+    # Execute Python and Java through ExecutionEngine.
+    # Java execution requires the Java-aware ExecutionEngine version.
+    if is_python or is_java:
+        execution_result = executor.run(
+            current_code,
+            stdin_input=stdin_input,
+            filename=filename,
+        )
 
-    original_issues = collect_issues(original_analysis)
+        # This verifier may not understand language-specific runtime
+        # semantics. Treat its result as a preliminary verification.
+        verification_result = verifier.verify(
+            original_issues,
+            remaining_issues,
+            execution_result,
+        )
+    else:
+        execution_result = {
+            "success": False,
+            "return_code": None,
+            "output": "",
+            "error": (
+                f"Execution is not supported for {extension or 'this file type'}."
+            ),
+            "error_type": "Unsupported",
+            "error_line": None,
+        }
 
-    verification_result = verifier.verify(
-        original_issues,
-        remaining_issues,
-        execution_result,
-    )
+        verification_result = {
+            "verified": False,
+            "fixed_count": 0,
+            "remaining_count": len(remaining_issues),
+            "execution_success": False,
+            "fixed_issues": [],
+            "remaining_issues": [
+                bug.get("type") for bug in remaining_issues
+            ],
+            "message": (
+                "Execution is unsupported for this language. "
+                "Review the detected issues."
+            ),
+        }
 
     return {
         "filename": filename,
@@ -161,40 +201,69 @@ def dashboard():
 
 
 # =========================================================
+# REQUEST VALIDATION
+# =========================================================
+
+def validate_request_payload(data):
+    if not isinstance(data, dict) or "code" not in data:
+        return None, None, None, (
+            jsonify({"success": False, "error": "Code required"}), 400
+        )
+
+    code = data["code"]
+    filename = data.get("filename", "code.py")
+    stdin_input = data.get("stdin_input")
+
+    if not isinstance(code, str):
+        return None, None, None, (
+            jsonify({
+                "success": False,
+                "error": "Code must be a string",
+            }),
+            400,
+        )
+
+    if not isinstance(filename, str) or not filename.strip():
+        return None, None, None, (
+            jsonify({
+                "success": False,
+                "error": "A valid filename is required",
+            }),
+            400,
+        )
+
+    if stdin_input is not None and not isinstance(stdin_input, str):
+        return None, None, None, (
+            jsonify({
+                "success": False,
+                "error": "Test input must be a string",
+            }),
+            400,
+        )
+
+    if stdin_input is not None and len(stdin_input) > 10000:
+        return None, None, None, (
+            jsonify({
+                "success": False,
+                "error": "Test input cannot exceed 10000 characters",
+            }),
+            400,
+        )
+
+    return code, os.path.basename(filename), stdin_input, None
+
+
+# =========================================================
 # CODE ANALYSIS API
 # =========================================================
 
 @app.route("/analyze", methods=["POST"])
 def analyze_api():
     data = request.get_json(silent=True)
+    code, filename, stdin_input, error = validate_request_payload(data)
 
-    if not isinstance(data, dict) or "code" not in data:
-        return jsonify({
-            "success": False,
-            "error": "Code required",
-        }), 400
-
-    code = data["code"]
-    filename = data.get("filename", "code.py")
-    stdin_input = data.get("stdin_input")
-
-    if stdin_input is not None and not isinstance(stdin_input, str):
-        return jsonify({
-            "success": False,
-            "error": "Test input must be a string",
-        }), 400
-
-    if stdin_input is not None and len(stdin_input) > 10000:
-        return jsonify({
-            "success": False,
-            "error": "Test input cannot exceed 10000 characters",
-        }), 400
-
-    if not isinstance(code, str):
-        return jsonify({
-            "success": False,
-            "error": "Code must be a string",
-        }), 400
+    if error:
+        return error
 
     try:
         validate_code(code, filename)
@@ -209,7 +278,9 @@ def analyze_api():
         app.logger.exception("Code analysis failed")
         return jsonify({
             "success": False,
-            "error": "Code analysis failed. Check the server terminal for details.",
+            "error": (
+                "Code analysis failed. Check the server terminal for details."
+            ),
         }), 400
 
 
@@ -220,38 +291,18 @@ def analyze_api():
 @app.route("/debug", methods=["POST"])
 def debug_api():
     data = request.get_json(silent=True)
+    code, filename, stdin_input, error = validate_request_payload(data)
 
-    if not isinstance(data, dict) or "code" not in data:
-        return jsonify({
-            "success": False,
-            "error": "Code required",
-        }), 400
-
-    code = data["code"]
-    filename = data.get("filename", "code.py")
-    stdin_input = data.get("stdin_input")
-
-    if stdin_input is not None and not isinstance(stdin_input, str):
-        return jsonify({
-            "success": False,
-            "error": "Test input must be a string",
-        }), 400
-
-    if stdin_input is not None and len(stdin_input) > 10000:
-        return jsonify({
-            "success": False,
-            "error": "Test input cannot exceed 10000 characters",
-        }), 400
-
-    if not isinstance(code, str):
-        return jsonify({
-            "success": False,
-            "error": "Code must be a string",
-        }), 400
+    if error:
+        return error
 
     try:
         validate_code(code, filename)
-        result = debug_code(code, filename, stdin_input=stdin_input)
+        result = debug_code(
+            code,
+            filename,
+            stdin_input=stdin_input,
+        )
 
         return jsonify({
             "success": True,
@@ -262,7 +313,9 @@ def debug_api():
         app.logger.exception("Debugging request failed")
         return jsonify({
             "success": False,
-            "error": "Debugging failed. Check the server terminal for details.",
+            "error": (
+                "Debugging failed. Check the server terminal for details."
+            ),
         }), 400
 
 
@@ -305,12 +358,13 @@ def upload_debug():
         app.logger.exception("File upload/debugging failed")
         return jsonify({
             "success": False,
-            "error": "File debugging failed. Check the server terminal for details.",
+            "error": (
+                "File debugging failed. Check the server terminal for details."
+            ),
         }), 400
 
     finally:
-        # Do not delete the file here until the file handler's
-        # temporary-file storage contract is confirmed.
+        # Keep existing file-handler cleanup behavior unchanged.
         pass
 
 
@@ -335,9 +389,10 @@ if __name__ == "__main__":
     print("AI CODE REVIEW & DEBUGGING SYSTEM")
     print("=" * 55)
     print("Source size limit: 5 MB")
-    print("Debugging: ENABLED")
-    print("Execution: ENABLED")
-    print("Auto-fix: ENABLED")
+    print("Python auto-fix: ENABLED")
+    print("Python execution: ENABLED")
+    print("Java execution: CONNECTED IF SUPPORTED BY EXECUTION ENGINE")
+    print("Java auto-fix: NOT IMPLEMENTED")
     print(f"Website: {URL}")
     print("=" * 55)
 
@@ -352,7 +407,3 @@ if __name__ == "__main__":
         debug=False,
         use_reloader=False,
     )
-
-
-
-

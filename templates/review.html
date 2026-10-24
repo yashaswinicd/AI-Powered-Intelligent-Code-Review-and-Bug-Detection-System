@@ -5,7 +5,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AI Code Review &amp; Debugging</title>
-
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
@@ -18,7 +17,8 @@
 .tabs{display:flex;justify-content:center;gap:12px;margin-bottom:20px}
 .tab{padding:12px 25px;border:1px solid #64c8ff;border-radius:10px;background:transparent;color:#64c8ff;cursor:pointer}
 .tab.active,.tab:hover{background:#64c8ff;color:#07111f}
-textarea{width:100%;height:300px;background:#080d14;color:#e8f1ff;border:1px solid #26384c;border-radius:12px;padding:18px;font-family:monospace;resize:vertical;box-sizing:border-box}
+textarea,select{width:100%;background:#080d14;color:#e8f1ff;border:1px solid #26384c;border-radius:12px;padding:14px;box-sizing:border-box}
+textarea{height:300px;font-family:monospace;resize:vertical}
 #stdinInput{height:100px;margin-top:8px}
 .input-label{display:block;margin-top:18px;margin-bottom:6px;color:#64c8ff;font-weight:bold}
 .help-text{color:#91a5b8;font-size:13px;margin:6px 0 12px}
@@ -38,7 +38,6 @@ input[type=file]{display:none}
 .score-comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px;margin-top:20px}
 .score-panel{background:#101a26;border:1px solid #24384d;border-radius:14px;padding:20px}
 .score-panel h3{color:#64c8ff;margin-top:0}
-.score-panel p{margin-bottom:5px}
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:15px}
 .stat{text-align:center;background:#101a26;border-radius:14px;padding:20px}
 .stat strong{display:block;font-size:30px;color:#64c8ff}
@@ -95,16 +94,29 @@ input[type=file]{display:none}
         </div>
 
         <div id="pasteBox">
-            <label class="input-label" for="code">Python Code</label>
+            <label class="input-label" for="language">Select Programming Language</label>
+            <select id="language" onchange="updateLanguageInfo()">
+                <option value="python">Python</option>
+                <option value="java">Java</option>
+                <option value="c">C</option>
+                <option value="cpp">C++</option>
+                <option value="javascript">JavaScript</option>
+            </select>
+
+            <p class="help-text" id="languageInfo">
+                Python: code review, supported auto-fixes and execution.
+            </p>
+
+            <label class="input-label" for="code">Source Code</label>
             <textarea id="code" placeholder="Paste your Python code here..."></textarea>
 
             <label class="input-label" for="stdinInput">
-                <i class="fas fa-keyboard"></i> Test Input (Optional)
+                <i class="fas fa-keyboard"></i> Test Input (Python only)
             </label>
             <textarea id="stdinInput" rows="4"
-                placeholder="Enter test input, one line per input() call..."></textarea>
+                placeholder="Enter input for your Python program..."></textarea>
             <p class="help-text">
-                Used when your Python code calls input(). Leave empty if no input is required.
+                Test input is used only when executing Python code.
             </p>
         </div>
 
@@ -112,7 +124,8 @@ input[type=file]{display:none}
             <i class="fas fa-cloud-arrow-up"></i>
             <h3>Upload Source Code</h3>
             <p>Supports Python, Java, C, C++, JavaScript</p>
-            <input id="fileInput" type="file" accept=".py,.java,.c,.cpp,.js">
+            <input id="fileInput" type="file"
+                accept=".py,.java,.c,.h,.cpp,.cc,.cxx,.hpp,.js">
             <p id="fileName"></p>
         </div>
 
@@ -123,7 +136,7 @@ input[type=file]{display:none}
     </div>
 
     <div class="card loader" id="loader">
-        <h2><i class="fas fa-robot"></i> AI Debugging Pipeline</h2>
+        <h2><i class="fas fa-robot"></i> Code Analysis Pipeline</h2>
         <div class="pipeline">
             <div class="step"><i class="fas fa-search"></i>Detect</div>
             <div class="step"><i class="fas fa-wand-magic-sparkles"></i>Auto-Fix</div>
@@ -142,7 +155,7 @@ input[type=file]{display:none}
                     <p>Grade: <strong id="originalGrade">-</strong></p>
                 </div>
                 <div class="score-panel">
-                    <h3>Fixed Code</h3>
+                    <h3>Reviewed Code</h3>
                     <div class="score-number" id="score">0</div>
                     <p>Grade: <strong id="grade">-</strong></p>
                 </div>
@@ -152,7 +165,7 @@ input[type=file]{display:none}
 
         <div class="stats">
             <div class="stat"><strong id="lines">0</strong><span>Lines</span></div>
-            <div class="stat"><strong id="bugs">0</strong><span>Original Bugs</span></div>
+            <div class="stat"><strong id="bugs">0</strong><span>Original Issues</span></div>
             <div class="stat"><strong id="security">0</strong><span>Security Issues</span></div>
             <div class="stat"><strong id="fixCount">0</strong><span>Auto Fixes</span></div>
         </div>
@@ -169,6 +182,7 @@ input[type=file]{display:none}
 
         <div class="card">
             <h2><i class="fas fa-terminal"></i> Execution Result</h2>
+            <p class="help-text" id="executionInfo"></p>
             <div class="debug-grid">
                 <div class="debug-box">
                     <h3>Status</h3>
@@ -184,13 +198,13 @@ input[type=file]{display:none}
                 </div>
             </div>
             <br>
-            <h3>Output</h3>
+            <h3>Output / Message</h3>
             <div class="code-box" id="output">No output</div>
         </div>
 
         <div class="card">
-            <h2><i class="fas fa-code"></i> Corrected Code</h2>
-            <div class="code-box" id="fixedCode">No corrected code</div>
+            <h2><i class="fas fa-code"></i> Reviewed Code</h2>
+            <div class="code-box" id="fixedCode">No code returned</div>
         </div>
 
         <div class="card verify">
@@ -207,6 +221,58 @@ input[type=file]{display:none}
 
 <script>
 let uploadMode = false;
+
+const languageConfig = {
+    python: {
+        filename: "code.py",
+        label: "Python",
+        placeholder: "Paste your Python code here...",
+        info: "Python: code review, supported auto-fixes and execution."
+    },
+    java: {
+        filename: "Main.java",
+        label: "Java",
+        placeholder: "Paste your Java code here...",
+        info: "Java: code analysis only. Auto-fix and execution are not enabled in the current backend."
+    },
+    c: {
+        filename: "code.c",
+        label: "C",
+        placeholder: "Paste your C code here...",
+        info: "C: code analysis only. Auto-fix and execution are not enabled in the current backend."
+    },
+    cpp: {
+        filename: "code.cpp",
+        label: "C++",
+        placeholder: "Paste your C++ code here...",
+        info: "C++: code analysis only. Auto-fix and execution are not enabled in the current backend."
+    },
+    javascript: {
+        filename: "code.js",
+        label: "JavaScript",
+        placeholder: "Paste your JavaScript code here...",
+        info: "JavaScript: code analysis only. Auto-fix and execution are not enabled in the current backend."
+    }
+};
+
+function updateLanguageInfo() {
+    const language = document.getElementById("language").value;
+    const config = languageConfig[language];
+    const isPython = language === "python";
+
+    document.getElementById("languageInfo").textContent = config.info;
+    document.getElementById("code").placeholder = config.placeholder;
+    document.getElementById("stdinInput").disabled = !isPython;
+
+    if (!isPython) {
+        document.getElementById("stdinInput").value = "";
+        document.getElementById("stdinInput").placeholder =
+            "Test input is available for Python only.";
+    } else {
+        document.getElementById("stdinInput").placeholder =
+            "Enter test input, one line per input() call...";
+    }
+}
 
 function showPaste() {
     uploadMode = false;
@@ -225,15 +291,39 @@ function showUpload() {
 }
 
 document.getElementById("fileInput").addEventListener("change", function() {
-    if (this.files && this.files[0]) {
-        document.getElementById("fileName").textContent =
-            "Selected: " + this.files[0].name;
-    }
+    const file = this.files && this.files[0];
+    document.getElementById("fileName").textContent =
+        file ? "Selected: " + file.name : "";
 });
 
 async function startDebug() {
     const btn = document.getElementById("debugBtn");
     const loader = document.getElementById("loader");
+
+    let code;
+    let filename;
+    let stdinInput = "";
+
+    if (uploadMode) {
+        const file = document.getElementById("fileInput").files[0];
+
+        if (!file) {
+            alert("Please upload a source code file.");
+            return;
+        }
+
+        filename = file.name;
+    } else {
+        code = document.getElementById("code").value;
+        const language = document.getElementById("language").value;
+        filename = languageConfig[language].filename;
+        stdinInput = document.getElementById("stdinInput").value;
+
+        if (!code.trim()) {
+            alert("Please paste your source code.");
+            return;
+        }
+    }
 
     btn.disabled = true;
     loader.style.display = "block";
@@ -243,12 +333,6 @@ async function startDebug() {
 
         if (uploadMode) {
             const file = document.getElementById("fileInput").files[0];
-
-            if (!file) {
-                alert("Please upload a file.");
-                return;
-            }
-
             const form = new FormData();
             form.append("file", file);
 
@@ -257,20 +341,12 @@ async function startDebug() {
                 body: form
             });
         } else {
-            const code = document.getElementById("code").value;
-            const stdinInput = document.getElementById("stdinInput").value;
-
-            if (!code.trim()) {
-                alert("Please paste code.");
-                return;
-            }
-
             response = await fetch("/debug", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({
                     code: code,
-                    filename: "code.py",
+                    filename: filename,
                     stdin_input: stdinInput
                 })
             });
@@ -279,21 +355,21 @@ async function startDebug() {
         const data = await response.json();
 
         if (!response.ok || !data.success) {
-            alert(data.error || "Debugging failed.");
+            alert(data.error || "Code analysis failed. Check the Flask terminal.");
             return;
         }
 
-        showResults(data);
+        showResults(data, filename);
     } catch (error) {
-        console.error("Debug request failed:", error);
-        alert("Server or network error. Check the Flask terminal.");
+        console.error("Request failed:", error);
+        alert("Server or network error. Check that the Flask app is running.");
     } finally {
         btn.disabled = false;
         loader.style.display = "none";
     }
 }
 
-function showResults(data) {
+function showResults(data, filename) {
     const originalReview = data.original_analysis?.review || {};
     const fixedReview = data.fixed_analysis?.review || {};
     const originalBugData = originalReview.bugs || {};
@@ -303,6 +379,7 @@ function showResults(data) {
     const fixesList = data.fixes || [];
     const originalSecurity = data.original_analysis?.security || {};
     const vulnerabilities = originalSecurity.vulnerabilities || [];
+    const isPython = (filename || "").toLowerCase().endsWith(".py");
 
     document.getElementById("originalScore").textContent = originalReview.score ?? 0;
     document.getElementById("originalGrade").textContent = originalReview.grade || "-";
@@ -319,17 +396,19 @@ function showResults(data) {
     if (!bugs.length && !vulnerabilities.length) {
         const empty = document.createElement("p");
         empty.className = "success";
-        empty.textContent = "No issues reported by the analysis.";
+        empty.textContent = "No issues were reported by the available analyzers.";
         issueBox.appendChild(empty);
     }
 
     bugs.forEach(function(b) {
         const severity = String(b.severity || "medium").toLowerCase();
         const issue = document.createElement("div");
-        issue.className = "issue " + severity;
+        issue.className = "issue " +
+            (["critical", "high", "medium", "low"].includes(severity) ? severity : "medium");
 
         const badge = document.createElement("span");
-        badge.className = "badge badge-" + severity;
+        badge.className = "badge badge-" +
+            (["critical", "high", "medium", "low"].includes(severity) ? severity : "medium");
         badge.textContent = b.severity || "medium";
 
         const heading = document.createElement("h3");
@@ -374,7 +453,9 @@ function showResults(data) {
     fixesBox.replaceChildren();
 
     if (!fixesList.length) {
-        fixesBox.textContent = "No automatic fixes applied.";
+        fixesBox.textContent = isPython
+            ? "No automatic fixes were applied."
+            : "Automatic fixes are not enabled for this language in the current backend.";
     } else {
         fixesList.forEach(function(f) {
             const item = document.createElement("div");
@@ -405,30 +486,43 @@ function showResults(data) {
         });
     }
 
-    document.getElementById("execStatus").textContent =
-        execution.success ? "Execution Successful" : "Execution Failed";
-    document.getElementById("execStatus").className =
-        execution.success ? "success" : "error";
+    document.getElementById("executionInfo").textContent = isPython
+        ? "Python execution is handled by the current backend."
+        : "Analysis only: the current backend does not execute or auto-fix this language.";
+
+    document.getElementById("execStatus").textContent = isPython
+        ? (execution.success ? "Execution Successful" : "Execution Failed")
+        : "Not Executed";
+    document.getElementById("execStatus").className = isPython
+        ? (execution.success ? "success" : "error")
+        : "";
 
     document.getElementById("errorType").textContent =
-        execution.error_type || "None";
+        isPython ? (execution.error_type || "None") : "Not applicable";
     document.getElementById("errorLine").textContent =
-        execution.error_line ?? "None";
-    document.getElementById("output").textContent =
-        execution.output || execution.error || "No output";
+        isPython ? (execution.error_line ?? "None") : "Not applicable";
+    document.getElementById("output").textContent = isPython
+        ? (execution.output || execution.error || "No output")
+        : "This language is not executed by the current backend.";
+
     document.getElementById("fixedCode").textContent =
         data.fixed_code || "No corrected code returned";
 
-    document.getElementById("verifyStatus").textContent =
-        verification.verified ? "VERIFIED" : "NOT VERIFIED";
-    document.getElementById("verifyStatus").className =
-        verification.verified ? "success" : "error";
-    document.getElementById("verifyMessage").textContent =
-        verification.message || "No verification details provided.";
+    document.getElementById("verifyStatus").textContent = isPython
+        ? (verification.verified ? "VERIFIED" : "NOT VERIFIED")
+        : "ANALYSIS ONLY";
+    document.getElementById("verifyStatus").className = isPython
+        ? (verification.verified ? "success" : "error")
+        : "";
+    document.getElementById("verifyMessage").textContent = isPython
+        ? (verification.message || "No verification details provided.")
+        : "Java, C, C++ and JavaScript execution and automatic fixing require additional backend support.";
 
     document.getElementById("results").style.display = "block";
     document.getElementById("results").scrollIntoView({behavior: "smooth"});
 }
+
+updateLanguageInfo();
 </script>
 </body>
 </html>

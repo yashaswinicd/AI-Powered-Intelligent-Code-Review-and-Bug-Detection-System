@@ -12,6 +12,7 @@ sys.path.append(
 
 from src.bug_detector import BugDetector
 from src.code_parser import CodeParser
+from src.language_analyzer import LanguageAnalyzer
 
 
 BASE_DIR = os.path.dirname(
@@ -32,6 +33,7 @@ class ReviewEngine:
     def __init__(self):
         self.bug_detector = BugDetector()
         self.code_parser = CodeParser()
+        self.language_analyzer = LanguageAnalyzer()
 
         try:
             self.ml_model = joblib.load(MODEL_PATH)
@@ -329,14 +331,20 @@ class ReviewEngine:
     def review(self, code, filename="code.py"):
         stats = self.code_parser.get_code_stats(code)
 
-        bug_result = self.bug_detector.detect(code)
+        is_python = filename.lower().endswith(".py")
+
+        if is_python:
+            bug_result = self.bug_detector.detect(code)
+        else:
+            bug_result = self.language_analyzer.detect(code, filename)
         detected_bugs = bug_result.get("bugs", [])
 
         review_issues = []
-        review_issues.extend(self.check_naming_conventions(code))
-        review_issues.extend(self.check_missing_docstrings(code))
-        review_issues.extend(self.check_complexity(code))
-        review_issues.extend(self.check_unused_imports(code))
+        if is_python:
+            review_issues.extend(self.check_naming_conventions(code))
+            review_issues.extend(self.check_missing_docstrings(code))
+            review_issues.extend(self.check_complexity(code))
+            review_issues.extend(self.check_unused_imports(code))
 
         all_issues = detected_bugs + review_issues
 
