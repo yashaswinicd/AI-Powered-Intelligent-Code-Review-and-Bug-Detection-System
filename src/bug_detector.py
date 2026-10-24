@@ -1,3 +1,4 @@
+
 import ast
 import builtins
 
@@ -6,6 +7,7 @@ class BugDetector:
     def detect(self, code):
         bugs = []
 
+        # Parse Python source code safely.
         try:
             tree = ast.parse(code)
         except SyntaxError as e:
@@ -25,11 +27,16 @@ class BugDetector:
         builtin_names = set(dir(builtins))
         builtin_names.update({"True", "False", "None"})
 
-        # Collect module-level names only.
+        # Collect module-level names.
         module_names = set()
+
         for statement in tree.body:
-            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if isinstance(
+                statement,
+                (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+            ):
                 module_names.add(statement.name)
+
             elif isinstance(statement, (ast.Import, ast.ImportFrom)):
                 for alias in statement.names:
                     if alias.name != "*":
@@ -40,42 +47,42 @@ class BugDetector:
                                 else alias.name
                             )
                         )
-            elif isinstance(statement, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
-                targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+
+            elif isinstance(
+                statement, (ast.Assign, ast.AnnAssign, ast.AugAssign)
+            ):
+                targets = (
+                    statement.targets
+                    if isinstance(statement, ast.Assign)
+                    else [statement.target]
+                )
                 for target in targets:
                     for child in ast.walk(target):
                         if isinstance(child, ast.Name):
                             module_names.add(child.id)
+
             elif isinstance(statement, (ast.For, ast.AsyncFor)):
                 for child in ast.walk(statement.target):
                     if isinstance(child, ast.Name):
                         module_names.add(child.id)
 
-        # Find names local to each function independently.
+        # Collect local variables and global declarations per function.
         function_locals = {}
         function_globals = {}
 
-        class ScopeCollector(ast.NodeVisitor):
-            def __init__(self):
+        class FunctionBodyCollector(ast.NodeVisitor):
+            def __init__(self, function_node):
+                self.function_node = function_node
                 self.locals = set()
                 self.globals = set()
                 self.nonlocals = set()
 
-            def visit_Global(self, node):
-                self.globals.update(node.names)
-
-            def visit_Nonlocal(self, node):
-                self.nonlocals.update(node.names)
-
             def visit_FunctionDef(self, node):
-                # Nested function name belongs to the current scope.
-                self.locals.add(node.name)
-                # Do not include nested function body in this scope.
-                for decorator in node.decorator_list:
-                    self.visit(decorator)
-                for default in node.args.defaults + node.args.kw_defaults:
-                    if default is not None:
-                        self.visit(default)
+                if node is self.function_node:
+                    for item in node.body:
+                        self.visit(item)
+                else:
+                    self.locals.add(node.name)
 
             visit_AsyncFunctionDef = visit_FunctionDef
 
@@ -83,27 +90,49 @@ class BugDetector:
                 self.locals.add(node.name)
 
             def visit_Lambda(self, node):
-                # Lambda body has its own scope.
                 return
+
+            def visit_Name(self, node):
+                if isinstance(node.ctx, (ast.Store, ast.Del)):
+                    self.locals.add(node.id)
+
+            def visit_Global(self, node):
+                self.globals.update(node.names)
+
+            def visit_Nonlocal(self, node):
+                self.nonlocals.update(node.names)
 
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                collector = ScopeCollector()
-                # Arguments are local variables.
+                collector = FunctionBodyCollector(node)
+
                 args = (
                     node.args.posonlyargs
                     + node.args.args
                     + node.args.kwonlyargs
                 )
                 collector.locals.update(arg.arg for arg in args)
+
                 if node.args.vararg:
                     collector.locals.add(node.args.vararg.arg)
                 if node.args.kwarg:
                     collector.locals.add(node.args.kwarg.arg)
 
-                # Collect assignments and references in this function,
-                # without descending into nested functions or classes.
-                class FunctionBodyCollector(ast.NodeVisitor):
+                FunctionBodyCollector.visit = FunctionBodyCollector.visit_Name
+                # Visit the function body using the collector's visitor methods.
+                collector = FunctionBodyCollector(node)
+                for arg in (
+                    node.args.posonlyargs
+                    + node.args.args
+                    + node.args.kwonlyargs
+                ):
+                    collector.locals.add(arg.arg)
+                if node.args.vararg:
+                    collector.locals.add(node.args.vararg.arg)
+                if node.args.kwarg:
+                    collector.locals.add(node.args.kwarg.arg)
+
+                class ScopeVisitor(ast.NodeVisitor):
                     def visit_FunctionDef(self, child):
                         if child is node:
                             for item in child.body:
@@ -116,6 +145,9 @@ class BugDetector:
                     def visit_ClassDef(self, child):
                         collector.locals.add(child.name)
 
+                    def visit_Lambda(self, child):
+                        return
+
                     def visit_Name(self, child):
                         if isinstance(child.ctx, (ast.Store, ast.Del)):
                             collector.locals.add(child.id)
@@ -126,14 +158,76 @@ class BugDetector:
                     def visit_Nonlocal(self, child):
                         collector.nonlocals.update(child.names)
 
-                FunctionBodyCollector().visit(node)
+                ScopeVisitor().visit(node)
+
                 function_locals[id(node)] = (
-                    collector.locals - collector.globals - collector.nonlocals
+                    collector.locals
+                    - collector.globals
+                    - collector.nonlocals
                 )
                 function_globals[id(node)] = collector.globals
 
-        # Detect division by literal zero or a simply assigned zero.
+        # Detect hardcoded credentials and empty except blocks.
+        password_names = {
+            "password", "passwd", "pwd", "secret",
+            "api_key", "apikey", "access_token"
+        }
+
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = (
+                    node.targets
+                    if isinstance(node, ast.Assign)
+                    else [node.target]
+                )
+                value = node.value
+
+                is_string_literal = (
+                    isinstance(value, ast.Constant)
+                    and isinstance(value.value, str)
+                    and bool(value.value.strip())
+                )
+
+                if is_string_literal:
+                    for target in targets:
+                        target_names = {
+                            child.id
+                            for child in ast.walk(target)
+                            if isinstance(child, ast.Name)
+                        }
+
+                        if any(
+                            name.lower() in password_names
+                            for name in target_names
+                        ):
+                            bugs.append({
+                                "type": "Hardcoded Password",
+                                "line": node.lineno,
+                                "column": node.col_offset + 1,
+                                "severity": "high",
+                                "message": "A password or secret is hardcoded in the source code.",
+                                "root_cause": "Sensitive credentials are stored directly in source code.",
+                                "suggestion": "Load credentials from environment variables or a secret manager."
+                            })
+
+            if isinstance(node, ast.ExceptHandler):
+                if (
+                    len(node.body) == 1
+                    and isinstance(node.body[0], ast.Pass)
+                ):
+                    bugs.append({
+                        "type": "Empty Except Block",
+                        "line": node.lineno,
+                        "column": node.col_offset + 1,
+                        "severity": "medium",
+                        "message": "The except block silently ignores an exception.",
+                        "root_cause": "The exception is caught without handling or reporting it.",
+                        "suggestion": "Handle the exception explicitly or log the error."
+                    })
+
+        # Detect variables assigned a literal zero.
         zero_variables = set()
+
         for node in ast.walk(tree):
             if isinstance(node, (ast.Assign, ast.AnnAssign)):
                 value = node.value
@@ -142,70 +236,95 @@ class BugDetector:
                     and type(value.value) in (int, float)
                     and value.value == 0
                 )
+
                 if is_zero:
-                    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                    targets = (
+                        node.targets
+                        if isinstance(node, ast.Assign)
+                        else [node.target]
+                    )
                     for target in targets:
                         if isinstance(target, ast.Name):
                             zero_variables.add(target.id)
 
-        # Detect simple list/tuple index errors.
+        # Detect simple list and tuple index errors.
         list_lengths = {}
+
         for node in ast.walk(tree):
-            if isinstance(node, ast.Assign) and isinstance(node.value, (ast.List, ast.Tuple)):
+            if (
+                isinstance(node, ast.Assign)
+                and isinstance(node.value, (ast.List, ast.Tuple))
+            ):
                 for target in node.targets:
                     if isinstance(target, ast.Name):
                         list_lengths[target.id] = len(node.value.elts)
 
-        # Undefined-name checks, using nearest enclosing function scope.
+        # Build parent relationships for scope lookup.
         parent_map = {}
+
         for parent in ast.walk(tree):
             for child in ast.iter_child_nodes(parent):
                 parent_map[child] = parent
 
+        # Detect undefined names, division by zero, index errors and eval().
         for node in ast.walk(tree):
             if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
                 name = node.id
-                if name in builtin_names:
-                    continue
 
-                parent = parent_map.get(node)
-                current_function = None
-                while parent is not None:
-                    if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        current_function = parent
-                        break
-                    parent = parent_map.get(parent)
+                if name not in builtin_names:
+                    parent = parent_map.get(node)
+                    current_function = None
 
-                if current_function is not None:
-                    local_names = function_locals.get(id(current_function), set())
-                    global_names = function_globals.get(id(current_function), set())
-                    is_known = (
-                        name in local_names
-                        or name in global_names
-                        or name in module_names
-                    )
-                else:
-                    is_known = name in module_names
+                    while parent is not None:
+                        if isinstance(
+                            parent, (ast.FunctionDef, ast.AsyncFunctionDef)
+                        ):
+                            current_function = parent
+                            break
+                        parent = parent_map.get(parent)
 
-                if not is_known:
-                    bugs.append({
-                        "type": "Undefined Variable",
-                        "line": node.lineno,
-                        "column": node.col_offset + 1,
-                        "severity": "high",
-                        "message": f"Variable '{name}' is used before being defined.",
-                        "root_cause": f"Variable '{name}' has no known definition in the analyzed scope.",
-                        "suggestion": f"Define '{name}' before using it."
-                    })
+                    if current_function is not None:
+                        local_names = function_locals.get(
+                            id(current_function), set()
+                        )
+                        global_names = function_globals.get(
+                            id(current_function), set()
+                        )
+                        is_known = (
+                            name in local_names
+                            or name in global_names
+                            or name in module_names
+                        )
+                    else:
+                        is_known = name in module_names
 
-            if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Div, ast.FloorDiv, ast.Mod)):
+                    if not is_known:
+                        bugs.append({
+                            "type": "Undefined Variable",
+                            "line": node.lineno,
+                            "column": node.col_offset + 1,
+                            "severity": "high",
+                            "message": f"Variable '{name}' is used before being defined.",
+                            "root_cause": f"Variable '{name}' has no known definition in the analyzed scope.",
+                            "suggestion": f"Define '{name}' before using it."
+                        })
+
+            if (
+                isinstance(node, ast.BinOp)
+                and isinstance(node.op, (ast.Div, ast.FloorDiv, ast.Mod))
+            ):
                 right = node.right
+
                 literal_zero = (
                     isinstance(right, ast.Constant)
                     and type(right.value) in (int, float)
                     and right.value == 0
                 )
-                variable_zero = isinstance(right, ast.Name) and right.id in zero_variables
+                variable_zero = (
+                    isinstance(right, ast.Name)
+                    and right.id in zero_variables
+                )
+
                 if literal_zero or variable_zero:
                     bugs.append({
                         "type": "Division By Zero",
@@ -217,11 +336,20 @@ class BugDetector:
                         "suggestion": "Check that the divisor is not zero before calculation."
                     })
 
-            if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
+            if (
+                isinstance(node, ast.Subscript)
+                and isinstance(node.value, ast.Name)
+            ):
                 variable = node.value.id
                 index = node.slice
-                if variable in list_lengths and isinstance(index, ast.Constant) and type(index.value) is int:
+
+                if (
+                    variable in list_lengths
+                    and isinstance(index, ast.Constant)
+                    and type(index.value) is int
+                ):
                     length = list_lengths[variable]
+
                     if index.value >= length or index.value < -length:
                         bugs.append({
                             "type": "Index Out Of Range",
@@ -233,7 +361,11 @@ class BugDetector:
                             "suggestion": "Use a valid list index or check the list length."
                         })
 
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "eval":
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "eval"
+            ):
                 bugs.append({
                     "type": "Dangerous Function",
                     "line": node.lineno,
@@ -244,12 +376,17 @@ class BugDetector:
                     "suggestion": "Avoid eval() and use safer alternatives."
                 })
 
+        # Remove duplicate findings.
         unique_bugs = []
         seen = set()
+
         for bug in bugs:
             key = (bug["type"], bug["line"], bug["column"])
             if key not in seen:
                 seen.add(key)
                 unique_bugs.append(bug)
 
-        return {"total_bugs": len(unique_bugs), "bugs": unique_bugs}
+        return {
+            "total_bugs": len(unique_bugs),
+            "bugs": unique_bugs
+        }
