@@ -8,10 +8,15 @@ from pathlib import Path
 
 
 class ExecutionEngine:
-    """Execute Python and Java code with a timeout.
+    """
+    Execute Python and Java code with a timeout.
 
-    WARNING: A subprocess timeout is not a security sandbox.
-    Run only trusted code unless externally isolated.
+    IMPORTANT:
+    - This is NOT a security sandbox.
+    - Execution is disabled by default.
+    - Enable execution only for trusted local demo code.
+    - Never run untrusted code on a public server without
+      proper OS/container isolation.
     """
 
     DANGEROUS_PATTERNS = [
@@ -21,6 +26,18 @@ class ExecutionEngine:
         r"\bsubprocess\s*\.\s*(?:call|run|Popen)\s*\(",
         r"\bpickle\s*\.\s*loads?\s*\(",
     ]
+
+    def __init__(self, allow_unsafe_local_execution=None):
+        if allow_unsafe_local_execution is None:
+            allow_unsafe_local_execution = (
+                os.environ.get(
+                    "ENABLE_UNSAFE_LOCAL_EXECUTION", "0"
+                ).strip() == "1"
+            )
+
+        self.allow_unsafe_local_execution = bool(
+            allow_unsafe_local_execution
+        )
 
     @staticmethod
     def _result(
@@ -41,6 +58,7 @@ class ExecutionEngine:
         }
 
     def is_dangerous(self, code):
+        """Return the first matching basic dangerous pattern."""
         for pattern in self.DANGEROUS_PATTERNS:
             if re.search(pattern, code):
                 return pattern
@@ -66,6 +84,7 @@ class ExecutionEngine:
                 text=True,
                 timeout=timeout,
                 check=False,
+                shell=False,
             )
 
             stdout = result.stdout.strip()
@@ -95,6 +114,7 @@ class ExecutionEngine:
                     r"([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Warning)):\s*(.*)",
                     last_line,
                 )
+
                 if match:
                     error_type = match.group(1)
                     error_message = match.group(2)
@@ -168,10 +188,12 @@ class ExecutionEngine:
                     text=True,
                     timeout=timeout,
                     check=False,
+                    shell=False,
                 )
 
                 if compile_result.returncode != 0:
                     compiler_error = compile_result.stderr.strip()
+
                     line_match = re.search(
                         rf"{re.escape(class_name)}\.java:(\d+):\s*error:",
                         compiler_error,
@@ -200,6 +222,7 @@ class ExecutionEngine:
                     text=True,
                     timeout=timeout,
                     check=False,
+                    shell=False,
                 )
 
                 stdout = run_result.stdout.strip()
@@ -220,8 +243,7 @@ class ExecutionEngine:
 
                 error_type = (
                     "RuntimeError"
-                    if "Exception" in stderr
-                    or "Error" in stderr
+                    if "Exception" in stderr or "Error" in stderr
                     else "ExecutionError"
                 )
 
@@ -303,7 +325,10 @@ class ExecutionEngine:
             return self._result(
                 False,
                 -1,
-                error="Timeout must be greater than 0 and at most 10 seconds.",
+                error=(
+                    "Timeout must be greater than 0 "
+                    "and at most 10 seconds."
+                ),
                 error_type="InvalidTimeout",
             )
 
@@ -318,40 +343,57 @@ class ExecutionEngine:
         filename = os.path.basename(filename)
         extension = Path(filename).suffix.lower()
 
+        if extension not in {".py", ".java"}:
+            return self._result(
+                False,
+                -1,
+                error=(
+                    f"Execution is not supported for "
+                    f"{extension or 'this file type'}."
+                ),
+                error_type="Unsupported",
+            )
+
+        # Basic pattern check, NOT a complete security boundary.
+        dangerous = self.is_dangerous(code)
+
+        if dangerous:
+            return self._result(
+                False,
+                -2,
+                error=(
+                    "Execution blocked by a basic "
+                    "dangerous-pattern check."
+                ),
+                error_type="SecurityBlock",
+            )
+
+        # Execution stays disabled unless explicitly enabled
+        # for trusted local demo code.
+        if not self.allow_unsafe_local_execution:
+            return self._result(
+                False,
+                -2,
+                error=(
+                    "Execution is disabled by default because "
+                    "submitted code is not sandboxed. For trusted "
+                    "local demo code only, set "
+                    "ENABLE_UNSAFE_LOCAL_EXECUTION=1. "
+                    "Do not enable this for public deployments."
+                ),
+                error_type="ExecutionDisabled",
+            )
+
         if extension == ".py":
-            dangerous = self.is_dangerous(code)
-
-            if dangerous:
-                return self._result(
-                    False,
-                    -2,
-                    error=(
-                        "Execution blocked by a basic "
-                        "dangerous-pattern check."
-                    ),
-                    error_type="SecurityBlock",
-                )
-
             return self._run_python(
                 code,
                 timeout,
                 stdin_input,
             )
 
-        if extension == ".java":
-            return self._run_java(
-                code,
-                timeout,
-                stdin_input,
-                filename,
-            )
-
-        return self._result(
-            False,
-            -1,
-            error=(
-                f"Execution is not supported for "
-                f"{extension or 'this file type'}."
-            ),
-            error_type="Unsupported",
+        return self._run_java(
+            code,
+            timeout,
+            stdin_input,
+            filename,
         )

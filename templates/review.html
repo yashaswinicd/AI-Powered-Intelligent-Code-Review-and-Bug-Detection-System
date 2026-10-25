@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -46,6 +47,7 @@ input[type=file]{display:none}
 .issue.high{border-color:#ff8800}
 .issue.medium{border-color:#ffcc00}
 .issue.low{border-color:#44ff88}
+.issue.manual-review{border-left-color:#ffcc00;background:rgba(255,204,0,.06)}
 .badge{float:right;padding:5px 10px;border-radius:15px;font-size:12px}
 .badge-critical{background:#ff4444}
 .badge-high{background:#ff8800}
@@ -114,9 +116,7 @@ input[type=file]{display:none}
             </label>
             <textarea id="stdinInput" rows="4"
                 placeholder="Enter input for your Python program..."></textarea>
-            <p class="help-text">
-                Test input is used only when executing Python code.
-            </p>
+            <p class="help-text">Test input is used only when executing Python code.</p>
         </div>
 
         <div id="uploadBox" class="upload" onclick="document.getElementById('fileInput').click()">
@@ -219,36 +219,33 @@ input[type=file]{display:none}
 </footer>
 
 <script>
+"use strict";
+
 let uploadMode = false;
 
 const languageConfig = {
     python: {
         filename: "code.py",
-        label: "Python",
         placeholder: "Paste your Python code here...",
         info: "Python: code review, supported auto-fixes and execution."
     },
     java: {
         filename: "Main.java",
-        label: "Java",
         placeholder: "Paste your Java code here...",
         info: "Java: code analysis only. Auto-fix and execution are not enabled in the current backend."
     },
     c: {
         filename: "code.c",
-        label: "C",
         placeholder: "Paste your C code here...",
         info: "C: code analysis only. Auto-fix and execution are not enabled in the current backend."
     },
     cpp: {
         filename: "code.cpp",
-        label: "C++",
         placeholder: "Paste your C++ code here...",
         info: "C++: code analysis only. Auto-fix and execution are not enabled in the current backend."
     },
     javascript: {
         filename: "code.js",
-        label: "JavaScript",
         placeholder: "Paste your JavaScript code here...",
         info: "JavaScript: code analysis only. Auto-fix and execution are not enabled in the current backend."
     }
@@ -380,6 +377,10 @@ function showResults(data, filename) {
     const execution = data.execution || {};
     const verification = data.verification || {};
 
+    const manualReviewIssues = Array.isArray(data.manual_review_issues)
+        ? data.manual_review_issues
+        : [];
+
     const fixesList = Array.isArray(data.fixes)
         ? data.fixes
         : [];
@@ -409,7 +410,6 @@ function showResults(data, filename) {
 
     document.getElementById("bugs").textContent = bugs.length;
 
-    // Count security issues reported by both analyzers.
     const securityTypes = [
         "Hardcoded Password",
         "Hardcoded Password or Secret",
@@ -425,9 +425,7 @@ function showResults(data, filename) {
     ];
 
     const securityBugCount = bugs.filter(function(bug) {
-        return securityTypes.includes(
-            String(bug.type || "").trim()
-        );
+        return securityTypes.includes(String(bug.type || "").trim());
     }).length;
 
     document.getElementById("security").textContent =
@@ -435,17 +433,46 @@ function showResults(data, filename) {
 
     document.getElementById("fixCount").textContent = fixesList.length;
 
-    // Display detected issues.
+    // Display detected issues and manual-review warnings.
     const issueBox = document.getElementById("issues");
     issueBox.replaceChildren();
 
-    if (!bugs.length && !vulnerabilities.length) {
+    if (
+        !bugs.length &&
+        !vulnerabilities.length &&
+        !manualReviewIssues.length
+    ) {
         const empty = document.createElement("p");
         empty.className = "success";
         empty.textContent =
             "No issues were reported by the available analyzers.";
         issueBox.appendChild(empty);
     }
+
+    // Human review is required when a safe automatic fix cannot be inferred.
+    manualReviewIssues.forEach(function(item) {
+        const warning = document.createElement("div");
+        warning.className = "issue manual-review medium";
+
+        const badge = document.createElement("span");
+        badge.className = "badge badge-medium";
+        badge.textContent = "Review Required";
+
+        const heading = document.createElement("h3");
+        heading.textContent = "Manual Review Required";
+
+        const message = document.createElement("p");
+        message.textContent = item.suggestion ||
+            "Review this issue manually before changing the code.";
+
+        const location = document.createElement("p");
+        location.textContent =
+            "Issue: " + (item.type || "Potential issue") +
+            " | Line: " + (item.line ?? "Unknown");
+
+        warning.append(badge, heading, message, location);
+        issueBox.appendChild(warning);
+    });
 
     bugs.forEach(function(b) {
         const severity = String(b.severity || "medium").toLowerCase();

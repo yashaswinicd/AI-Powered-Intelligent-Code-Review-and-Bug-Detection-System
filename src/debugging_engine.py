@@ -98,135 +98,13 @@ class DebuggingEngine:
     # ---------------------------------------------------------
 
     def fix_division(self, code, bug):
-        line_number = bug.get("line", 0)
-
-        try:
-            tree = ast.parse(code)
-        except (SyntaxError, ValueError, TypeError, RecursionError):
-            return code
-
-        lines = code.splitlines(keepends=True)
-
-        # Only attempt a fix when the intended divisor can be
-        # inferred conservatively from a two-parameter function.
-        for node in ast.walk(tree):
-            if not (
-                isinstance(node, ast.BinOp)
-                and isinstance(node.op, ast.Div)
-                and isinstance(node.right, ast.Constant)
-                and isinstance(node.right.value, (int, float))
-                and not isinstance(node.right.value, bool)
-                and node.right.value == 0
-                and node.lineno == line_number
-                and node.end_lineno == node.lineno
-            ):
-                continue
-
-            if not isinstance(node.left, ast.Name):
-                continue
-
-            # Find the smallest function containing this expression.
-            containing_functions = [
-                function
-                for function in ast.walk(tree)
-                if isinstance(
-                    function,
-                    (ast.FunctionDef, ast.AsyncFunctionDef),
-                )
-                and function.lineno <= node.lineno <= function.end_lineno
-            ]
-
-            if not containing_functions:
-                bug["manual_review_required"] = True
-                bug["suggestion"] = (
-                    "The divisor is zero. Choose the intended non-zero "
-                    "value or add suitable error handling."
-                )
-                continue
-
-            function = min(
-                containing_functions,
-                key=lambda item: item.end_lineno - item.lineno,
-            )
-
-            # Only ordinary positional parameters are considered here.
-            if (
-                function.args.vararg is not None
-                or function.args.kwarg is not None
-                or function.args.kwonlyargs
-                or function.args.posonlyargs
-                or len(function.args.args) != 2
-            ):
-                bug["manual_review_required"] = True
-                bug["suggestion"] = (
-                    "Confirm the intended divisor before changing "
-                    "this expression."
-                )
-                continue
-
-            first_parameter = function.args.args[0].arg
-            second_parameter = function.args.args[1].arg
-
-            if (
-                node.left.id != first_parameter
-                or first_parameter == second_parameter
-            ):
-                bug["manual_review_required"] = True
-                bug["suggestion"] = (
-                    "The intended divisor could not be inferred safely. "
-                    "Review this expression manually."
-                )
-                continue
-
-            # Replace only the AST expression's exact source range.
-            # AST column offsets are UTF-8 byte offsets.
-            line_index = node.lineno - 1
-            original_line = lines[line_index]
-            line_bytes = original_line.encode("utf-8")
-
-            old_expression = line_bytes[
-                node.col_offset:node.end_col_offset
-            ].decode("utf-8")
-
-            new_expression = (
-                f"{node.left.id} / {second_parameter}"
-            )
-
-            if old_expression != ast.get_source_segment(code, node):
-                continue
-
-            new_line_bytes = (
-                line_bytes[:node.col_offset]
-                + new_expression.encode("utf-8")
-                + line_bytes[node.end_col_offset:]
-            )
-
-            try:
-                new_line = new_line_bytes.decode("utf-8")
-            except UnicodeDecodeError:
-                continue
-
-            candidate_lines = lines.copy()
-            candidate_lines[line_index] = new_line
-            candidate_code = "".join(candidate_lines)
-
-            if (
-                candidate_code == code
-                or not self.is_valid_python(candidate_code)
-            ):
-                continue
-
-            self.add_fix(
-                bug,
-                old_expression,
-                new_expression,
-                "Replaced a zero divisor with the second parameter "
-                "of a matching two-parameter function. Runtime "
-                "behavior still requires verification.",
-            )
-
-            return candidate_code
-
+        """Never guess a replacement value for a divisor."""
+        bug["manual_review_required"] = True
+        bug["suggestion"] = (
+            "Check that the divisor is non-zero before division. "
+            "Automatic repair was not applied because the intended "
+            "error-handling behavior cannot be inferred safely."
+        )
         return code
 
     # ---------------------------------------------------------
@@ -246,16 +124,13 @@ class DebuggingEngine:
         for node in ast.walk(tree):
             if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
                 defined_names.add(node.id)
-
             elif isinstance(node, ast.arg):
                 defined_names.add(node.arg)
-
             elif isinstance(
                 node,
                 (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
             ):
                 defined_names.add(node.name)
-
             elif isinstance(node, (ast.Import, ast.ImportFrom)):
                 for alias in node.names:
                     defined_names.add(
@@ -278,10 +153,16 @@ class DebuggingEngine:
             undefined_name,
             sorted(defined_names),
             n=2,
-            cutoff=0.75,
+            cutoff=0.85,
         )
 
+        # Avoid guessing when multiple names are plausible.
         if len(candidates) != 1:
+            bug["manual_review_required"] = True
+            bug["suggestion"] = (
+                "Review the undefined variable and select the intended "
+                "name manually."
+            )
             return code
 
         replacement_name = candidates[0]
@@ -363,21 +244,39 @@ class DebuggingEngine:
     # ---------------------------------------------------------
 
     def fix_index(self, code, bug):
+        bug["manual_review_required"] = True
+        bug["suggestion"] = (
+            "Check the collection length and index bounds. "
+            "Automatic index changes may alter program behavior."
+        )
         return code
 
     def fix_eval(self, code, bug):
+        bug["manual_review_required"] = True
+        bug["suggestion"] = (
+            "Review the use of eval and consider a safer alternative "
+            "appropriate for the expected input."
+        )
         return code
 
     def fix_dangerous_function(self, code, bug):
         return self.fix_eval(code, bug)
 
     def fix_xss(self, code, bug):
+        bug["manual_review_required"] = True
+        bug["suggestion"] = (
+            "Review how untrusted data reaches the output and apply "
+            "context-appropriate escaping or sanitization."
+        )
         return code
 
     def apply_fix(self, code, bug):
         bug_type = bug.get("type", "")
 
-        if bug_type == "Division By Zero":
+        if bug_type in (
+            "Division By Zero",
+            "Potential Division By Zero",
+        ):
             return self.fix_division(code, bug)
 
         if bug_type == "Index Out Of Range":
@@ -439,7 +338,7 @@ class DebuggingEngine:
                     current_code = candidate
                     break
 
-        # Apply one fix at a time and re-analyze.
+        # Apply only fixes that change the code and preserve valid syntax.
         for _ in range(self.max_iterations):
             if not self.is_valid_python(current_code):
                 break
@@ -470,7 +369,7 @@ class DebuggingEngine:
         remaining_bugs = self.analyze_all(current_code)
         syntax_valid = self.is_valid_python(current_code)
 
-        # Static verification does not prove runtime correctness.
+        # This is static verification only, not runtime proof.
         verified = syntax_valid and len(remaining_bugs) == 0
 
         return {

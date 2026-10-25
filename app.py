@@ -1,4 +1,5 @@
-﻿import os
+﻿
+import os
 import threading
 import webbrowser
 
@@ -21,6 +22,7 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
 
 URL = "http://127.0.0.1:5000"
+
 
 # =========================================================
 # ENGINE INITIALIZATION
@@ -65,6 +67,35 @@ def collect_issues(analysis):
         vulnerabilities = []
 
     return bugs + vulnerabilities
+
+
+def collect_manual_review_issues(issues):
+    """Return issues that require human review instead of guessed fixes."""
+    manual_review_issues = []
+
+    division_types = {
+        "division by zero",
+        "potential division by zero",
+    }
+
+    for issue in issues:
+        if not isinstance(issue, dict):
+            continue
+
+        issue_type = str(issue.get("type", "")).strip().lower()
+
+        if issue_type in division_types:
+            manual_review_issues.append({
+                **issue,
+                "manual_review_required": True,
+                "suggestion": (
+                    "Check that the divisor is non-zero before division. "
+                    "Automatic repair was not applied because the intended "
+                    "error-handling behavior cannot be inferred safely."
+                ),
+            })
+
+    return manual_review_issues
 
 
 # =========================================================
@@ -121,11 +152,16 @@ def debug_code(code, filename, stdin_input=None):
         current_code = candidate_code
 
     final_analysis = analyze(current_code, filename)
+
     original_issues = collect_issues(original_analysis)
     remaining_issues = collect_issues(final_analysis)
 
+    # Report unresolved division issues for human review.
+    manual_review_issues = collect_manual_review_issues(
+        remaining_issues
+    )
+
     # Execute Python and Java through ExecutionEngine.
-    # Java execution requires the Java-aware ExecutionEngine version.
     if is_python or is_java:
         execution_result = executor.run(
             current_code,
@@ -133,8 +169,8 @@ def debug_code(code, filename, stdin_input=None):
             filename=filename,
         )
 
-        # This verifier may not understand language-specific runtime
-        # semantics. Treat its result as a preliminary verification.
+        # Verification is preliminary; it does not prove correctness
+        # for every possible input.
         verification_result = verifier.verify(
             original_issues,
             remaining_issues,
@@ -146,7 +182,8 @@ def debug_code(code, filename, stdin_input=None):
             "return_code": None,
             "output": "",
             "error": (
-                f"Execution is not supported for {extension or 'this file type'}."
+                f"Execution is not supported for "
+                f"{extension or 'this file type'}."
             ),
             "error_type": "Unsupported",
             "error_line": None,
@@ -159,7 +196,9 @@ def debug_code(code, filename, stdin_input=None):
             "execution_success": False,
             "fixed_issues": [],
             "remaining_issues": [
-                bug.get("type") for bug in remaining_issues
+                bug.get("type")
+                for bug in remaining_issues
+                if isinstance(bug, dict)
             ],
             "message": (
                 "Execution is unsupported for this language. "
@@ -176,6 +215,7 @@ def debug_code(code, filename, stdin_input=None):
         "fixes": all_fixes,
         "total_fixes": len(all_fixes),
         "remaining_bugs": remaining_issues,
+        "manual_review_issues": manual_review_issues,
         "execution": execution_result,
         "verification": verification_result,
     }
@@ -207,7 +247,11 @@ def dashboard():
 def validate_request_payload(data):
     if not isinstance(data, dict) or "code" not in data:
         return None, None, None, (
-            jsonify({"success": False, "error": "Code required"}), 400
+            jsonify({
+                "success": False,
+                "error": "Code required",
+            }),
+            400,
         )
 
     code = data["code"]
@@ -279,7 +323,8 @@ def analyze_api():
         return jsonify({
             "success": False,
             "error": (
-                "Code analysis failed. Check the server terminal for details."
+                "Code analysis failed. "
+                "Check the server terminal for details."
             ),
         }), 400
 
@@ -298,6 +343,7 @@ def debug_api():
 
     try:
         validate_code(code, filename)
+
         result = debug_code(
             code,
             filename,
@@ -314,7 +360,8 @@ def debug_api():
         return jsonify({
             "success": False,
             "error": (
-                "Debugging failed. Check the server terminal for details."
+                "Debugging failed. "
+                "Check the server terminal for details."
             ),
         }), 400
 
@@ -359,12 +406,13 @@ def upload_debug():
         return jsonify({
             "success": False,
             "error": (
-                "File debugging failed. Check the server terminal for details."
+                "File debugging failed. "
+                "Check the server terminal for details."
             ),
         }), 400
 
     finally:
-        # Keep existing file-handler cleanup behavior unchanged.
+        # Preserve the existing file-handler cleanup behavior.
         pass
 
 
