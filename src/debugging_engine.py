@@ -105,8 +105,12 @@ class DebuggingEngine:
         except (SyntaxError, ValueError, TypeError, RecursionError):
             return code
 
+        lines = code.splitlines(keepends=True)
+
+        # Only attempt a fix when the intended divisor can be
+        # inferred conservatively from a two-parameter function.
         for node in ast.walk(tree):
-            if (
+            if not (
                 isinstance(node, ast.BinOp)
                 and isinstance(node.op, ast.Div)
                 and isinstance(node.right, ast.Constant)
@@ -114,13 +118,114 @@ class DebuggingEngine:
                 and not isinstance(node.right.value, bool)
                 and node.right.value == 0
                 and node.lineno == line_number
+                and node.end_lineno == node.lineno
             ):
+                continue
+
+            if not isinstance(node.left, ast.Name):
+                continue
+
+            # Find the smallest function containing this expression.
+            containing_functions = [
+                function
+                for function in ast.walk(tree)
+                if isinstance(
+                    function,
+                    (ast.FunctionDef, ast.AsyncFunctionDef),
+                )
+                and function.lineno <= node.lineno <= function.end_lineno
+            ]
+
+            if not containing_functions:
                 bug["manual_review_required"] = True
                 bug["suggestion"] = (
                     "The divisor is zero. Choose the intended non-zero "
                     "value or add suitable error handling."
                 )
-                return code
+                continue
+
+            function = min(
+                containing_functions,
+                key=lambda item: item.end_lineno - item.lineno,
+            )
+
+            # Only ordinary positional parameters are considered here.
+            if (
+                function.args.vararg is not None
+                or function.args.kwarg is not None
+                or function.args.kwonlyargs
+                or function.args.posonlyargs
+                or len(function.args.args) != 2
+            ):
+                bug["manual_review_required"] = True
+                bug["suggestion"] = (
+                    "Confirm the intended divisor before changing "
+                    "this expression."
+                )
+                continue
+
+            first_parameter = function.args.args[0].arg
+            second_parameter = function.args.args[1].arg
+
+            if (
+                node.left.id != first_parameter
+                or first_parameter == second_parameter
+            ):
+                bug["manual_review_required"] = True
+                bug["suggestion"] = (
+                    "The intended divisor could not be inferred safely. "
+                    "Review this expression manually."
+                )
+                continue
+
+            # Replace only the AST expression's exact source range.
+            # AST column offsets are UTF-8 byte offsets.
+            line_index = node.lineno - 1
+            original_line = lines[line_index]
+            line_bytes = original_line.encode("utf-8")
+
+            old_expression = line_bytes[
+                node.col_offset:node.end_col_offset
+            ].decode("utf-8")
+
+            new_expression = (
+                f"{node.left.id} / {second_parameter}"
+            )
+
+            if old_expression != ast.get_source_segment(code, node):
+                continue
+
+            new_line_bytes = (
+                line_bytes[:node.col_offset]
+                + new_expression.encode("utf-8")
+                + line_bytes[node.end_col_offset:]
+            )
+
+            try:
+                new_line = new_line_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+
+            candidate_lines = lines.copy()
+            candidate_lines[line_index] = new_line
+            candidate_code = "".join(candidate_lines)
+
+            if (
+                candidate_code == code
+                or not self.is_valid_python(candidate_code)
+            ):
+                continue
+
+            self.add_fix(
+                bug,
+                old_expression,
+                new_expression,
+                "Replaced a zero divisor with the second parameter "
+                "of a matching two-parameter function. Runtime "
+                "behavior still requires verification.",
+            )
+
+            return candidate_code
 
         return code
 
@@ -147,7 +252,7 @@ class DebuggingEngine:
 
             elif isinstance(
                 node,
-                (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+                (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
             ):
                 defined_names.add(node.name)
 
@@ -159,26 +264,23 @@ class DebuggingEngine:
 
         message = bug.get("message", "")
         match = re.search(
-            r"Variable ['\"]([A-Za-z_]\w*)['\"]",
-            message
+            r"""Variable ['"]([A-Za-z_]\w*)['"]""",
+            message,
         )
 
         if not match:
             return code
 
         undefined_name = match.group(1)
-
-        # Do not replace a name with itself.
         defined_names.discard(undefined_name)
 
         candidates = difflib.get_close_matches(
             undefined_name,
             sorted(defined_names),
             n=2,
-            cutoff=0.75
+            cutoff=0.75,
         )
 
-        # Only fix when there is exactly one close candidate.
         if len(candidates) != 1:
             return code
 
@@ -193,7 +295,7 @@ class DebuggingEngine:
         new_line = re.sub(
             rf"\b{re.escape(undefined_name)}\b",
             replacement_name,
-            old_line
+            old_line,
         )
 
         if new_line == old_line:
@@ -211,7 +313,7 @@ class DebuggingEngine:
             old_line,
             new_line,
             f"Suggested variable-name correction: "
-            f"{undefined_name} -> {replacement_name}."
+            f"{undefined_name} -> {replacement_name}.",
         )
 
         return candidate_code
@@ -232,7 +334,7 @@ class DebuggingEngine:
 
         block_keywords = (
             "if ", "elif ", "else", "for ", "while ",
-            "def ", "class ", "try", "except", "finally", "with "
+            "def ", "class ", "try", "except", "finally", "with ",
         )
 
         if not stripped.startswith(block_keywords):
@@ -251,7 +353,7 @@ class DebuggingEngine:
             bug,
             old_line,
             new_line,
-            "Added a missing colon and validated Python syntax."
+            "Added a missing colon and validated Python syntax.",
         )
 
         return candidate
@@ -368,7 +470,7 @@ class DebuggingEngine:
         remaining_bugs = self.analyze_all(current_code)
         syntax_valid = self.is_valid_python(current_code)
 
-        # This is static verification, not proof of runtime correctness.
+        # Static verification does not prove runtime correctness.
         verified = syntax_valid and len(remaining_bugs) == 0
 
         return {
