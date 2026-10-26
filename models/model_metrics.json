@@ -1,9 +1,10 @@
 {
-    "accuracy": 1.0,
-    "total_samples": 20,
-    "train_samples": 16,
-    "test_samples": 4,
-    "model": "Logistic Regression",
-    "vectorizer": "TF-IDF",
-    "max_features": 5000
+  "samples": 360,
+  "templates": 30,
+  "validation": "5-fold, folds split by template (unseen templates)",
+  "accuracy": 0.6389,
+  "precision": 0.6892,
+  "recall": 0.5667,
+  "f1": 0.5859,
+  "note": "Snippets are generated from templates. Each test fold holds out whole templates. Metrics describe this synthetic set, not real-world code; the rule engine is the primary detector."
 }

@@ -1,295 +1,165 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - AI Code Review</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        .dashboard-container {
-            max-width: 1100px;
-            margin: 2rem auto;
-            padding: 0 2rem;
-        }
-        .dashboard-header {
-            text-align: center;
-            margin-bottom: 3rem;
-        }
-        .dashboard-header h1 {
-            font-size: 2rem;
-            color: #ffffff;
-        }
-        .dash-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-        .dash-card {
-            background: rgba(255,255,255,0.04);
-            border: 1px solid rgba(100,200,255,0.2);
-            border-radius: 12px;
-            padding: 2rem;
-            text-align: center;
-        }
-        .dash-card i {
-            font-size: 2.5rem;
-            color: #64c8ff;
-            margin-bottom: 1rem;
-        }
-        .dash-card h3 {
-            font-size: 2rem;
-            color: #ffffff;
-            margin-bottom: 0.3rem;
-        }
-        .dash-card p {
-            color: #a0b4c8;
-            font-size: 0.9rem;
-        }
-        .info-section {
-            background: rgba(255,255,255,0.04);
-            border: 1px solid rgba(100,200,255,0.15);
-            border-radius: 12px;
-            padding: 2rem;
-            margin-bottom: 2rem;
-        }
-        .info-section h2 {
-            color: #ffffff;
-            margin-bottom: 1.5rem;
-            font-size: 1.3rem;
-        }
-        .info-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 0.8rem 0;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-            color: #a0b4c8;
-        }
-        .info-row span:last-child {
-            color: #64c8ff;
-            font-weight: 600;
-        }
-        .start-btn {
-            display: block;
-            text-align: center;
-            background: linear-gradient(135deg, #64c8ff, #0080ff);
-            color: white;
-            padding: 1rem 2rem;
-            border-radius: 8px;
-            text-decoration: none;
-            font-weight: 600;
-            font-size: 1.1rem;
-            margin-top: 1rem;
-            transition: all 0.3s;
-        }
-        .start-btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 25px rgba(100,200,255,0.4);
-        }
-        .charts-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-        .chart-card {
-            background: rgba(255,255,255,0.04);
-            border: 1px solid rgba(100,200,255,0.2);
-            border-radius: 12px;
-            padding: 1.5rem;
-        }
-        .chart-card h3 {
-            color: #ffffff;
-            margin-bottom: 1rem;
-            font-size: 1.1rem;
-            text-align: center;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard | AI Code Review</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+.wrap{max-width:1200px;margin:30px auto;padding:20px}
+h1{color:#64c8ff;text-align:center;margin-bottom:6px}
+.sub{text-align:center;color:#91a5b8;margin-bottom:22px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:20px}
+.kpi{background:rgba(255,255,255,.05);border:1px solid rgba(100,200,255,.2);border-radius:14px;padding:18px;text-align:center}
+.kpi strong{display:block;font-size:30px;color:#64c8ff}
+.kpi span{color:#91a5b8;font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px}
+.panel{background:rgba(255,255,255,.05);border:1px solid rgba(100,200,255,.2);border-radius:16px;padding:20px}
+.panel h3{color:#64c8ff;margin-bottom:12px}
+.bar{display:flex;align-items:center;gap:10px;margin:7px 0;font-size:13px}
+.bar .name{width:170px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar .track{flex:1;background:#101a26;border-radius:6px;height:14px;overflow:hidden}
+.bar .fill{height:100%;background:linear-gradient(90deg,#64c8ff,#087fff);border-radius:6px}
+.bar .fill.critical{background:#ff4444}.bar .fill.high{background:#ff8800}
+.bar .fill.medium{background:#ffcc00}.bar .fill.low{background:#44ff88}
+.bar .val{width:44px;text-align:right;color:#9fd8ff}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:7px 8px;border-bottom:1px solid #1c2c3d;text-align:left}
+th{color:#64c8ff}
+.empty{color:#91a5b8;font-size:14px}
+.ok{color:#44ff88}.no{color:#ff7777}
+</style>
 </head>
 <body>
-    <nav class="navbar">
-        <div class="nav-brand">
-            <i class="fas fa-robot"></i>
-            <span>AI Code Review</span>
-        </div>
-        <div class="nav-links">
-            <a href="/">Home</a>
-            <a href="/review">Review</a>
-            <a href="/dashboard" class="active">Dashboard</a>
-        </div>
-    </nav>
+<nav class="navbar">
+    <div class="nav-brand"><i class="fas fa-robot"></i><span>AI Code Review</span></div>
+    <div class="nav-links">
+        <a href="/">Home</a>
+        <a href="/review">Review</a>
+        <a href="/dashboard" class="active">Dashboard</a>
+    </div>
+</nav>
 
-    <div class="dashboard-container">
-        <div class="dashboard-header">
-            <h1><i class="fas fa-chart-bar"></i> Dashboard</h1>
-            <p style="color:#a0b4c8;">System overview and capabilities</p>
-        </div>
+<div class="wrap">
+    <h1><i class="fas fa-chart-bar"></i> Dashboard</h1>
+    <p class="sub">Live numbers from the analyses run on this installation, plus measured accuracy on the built-in test suite.</p>
 
-        <!-- Stats Cards -->
-        <div class="dash-grid">
-            <div class="dash-card">
-                <i class="fas fa-bug"></i>
-                <h3>5+</h3>
-                <p>Bug Types Detected</p>
-            </div>
-            <div class="dash-card">
-                <i class="fas fa-shield-alt"></i>
-                <h3>6+</h3>
-                <p>Security Checks</p>
-            </div>
-            <div class="dash-card">
-                <i class="fas fa-code"></i>
-                <h3>5</h3>
-                <p>Languages Supported</p>
-            </div>
-            <div class="dash-card">
-                <i class="fas fa-star"></i>
-                <h3>100</h3>
-                <p>Max Quality Score</p>
-            </div>
-            <div class="dash-card">
-                <i class="fas fa-file-alt"></i>
-                <h3>2</h3>
-                <p>Report Formats</p>
-            </div>
-            <div class="dash-card">
-                <i class="fas fa-clock"></i>
-                <h3>&lt;1s</h3>
-                <p>Analysis Time</p>
-            </div>
-        </div>
-
-        <!-- Charts Section -->
-        <div class="charts-grid">
-            <div class="chart-card">
-                <h3><i class="fas fa-chart-pie"></i> Bug Types Distribution</h3>
-                <canvas id="bugPieChart"></canvas>
-            </div>
-            <div class="chart-card">
-                <h3><i class="fas fa-chart-bar"></i> Issue Severity Distribution</h3>
-                <canvas id="severityBarChart"></canvas>
-            </div>
-        </div>
-
-        <!-- System Info -->
-        <div class="info-section">
-            <h2><i class="fas fa-info-circle"></i> System Info</h2>
-            <div class="info-row">
-                <span>Project Name</span>
-                <span>AI Code Review & Bug Detection</span>
-            </div>
-            <div class="info-row">
-                <span>Developer</span>
-                <span>Yashaswini C D</span>
-            </div>
-            <div class="info-row">
-                <span>College</span>
-                <span>AIT Tumakuru</span>
-            </div>
-            <div class="info-row">
-                <span>Tech Stack</span>
-                <span>Python, Flask, ML, HTML/CSS</span>
-            </div>
-            <div class="info-row">
-                <span>ML Model</span>
-                <span>Logistic Regression + TF-IDF</span>
-            </div>
-            <div class="info-row">
-                <span>Version</span>
-                <span>1.0.0</span>
-            </div>
-        </div>
-
-        <!-- Supported Languages -->
-        <div class="info-section">
-            <h2><i class="fas fa-code"></i> Supported Languages</h2>
-            <div class="info-row">
-                <span>🐍 Python</span>
-                <span>.py</span>
-            </div>
-            <div class="info-row">
-                <span>☕ Java</span>
-                <span>.java</span>
-            </div>
-            <div class="info-row">
-                <span>⚙️ C++</span>
-                <span>.cpp</span>
-            </div>
-            <div class="info-row">
-                <span>🔧 C</span>
-                <span>.c</span>
-            </div>
-            <div class="info-row">
-                <span>🌐 JavaScript</span>
-                <span>.js</span>
-            </div>
-        </div>
-
-        <a href="/review" class="start-btn">
-            <i class="fas fa-play"></i>
-            Start Code Review Now
-        </a>
+    <div class="cards">
+        <div class="kpi"><strong id="kAnalyses">0</strong><span>Analyses run</span></div>
+        <div class="kpi"><strong id="kLines">0</strong><span>Lines analysed</span></div>
+        <div class="kpi"><strong id="kIssues">0</strong><span>Issues found</span></div>
+        <div class="kpi"><strong id="kFixes">0</strong><span>Fixes applied</span></div>
+        <div class="kpi"><strong id="kVerified">0%</strong><span>Verified results</span></div>
+        <div class="kpi"><strong id="kTime">0</strong><span>Average ms</span></div>
     </div>
 
-    <footer class="footer" style="margin-top:3rem;">
-        <p>
-            <i class="fas fa-robot"></i>
-            AI Code Review System | Made with ❤️ by Yashaswini C D
-        </p>
-    </footer>
+    <div class="grid">
+        <div class="panel"><h3><i class="fas fa-triangle-exclamation"></i> Issue types</h3><div id="types"></div></div>
+        <div class="panel"><h3><i class="fas fa-layer-group"></i> Severity</h3><div id="severity"></div></div>
+        <div class="panel"><h3><i class="fas fa-language"></i> Languages analysed</h3><div id="langs"></div></div>
+        <div class="panel"><h3><i class="fas fa-clock-rotate-left"></i> Recent analyses</h3><div id="recent"></div></div>
+        <div class="panel"><h3><i class="fas fa-bullseye"></i> Detection accuracy (test suite)</h3><div id="bench"></div></div>
+        <div class="panel"><h3><i class="fas fa-screwdriver-wrench"></i> Toolchain on this machine</h3><div id="tools"></div></div>
+    </div>
+</div>
 
-    <script>
-        // Pie Chart - Bug Types
-        const pieCtx = document.getElementById('bugPieChart').getContext('2d');
-        new Chart(pieCtx, {
-            type: 'pie',
-            data: {
-                labels: ['Syntax Error', 'Empty Except', 'Hardcoded Password', 'Division by Zero', 'Unused Import'],
-                datasets: [{
-                    data: [30, 20, 25, 15, 10],
-                    backgroundColor: ['#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff', '#c77dff'],
-                    borderWidth: 2,
-                    borderColor: '#1a1a2e'
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: {
-                        labels: { color: '#a0b4c8', font: { size: 11 } }
-                    }
-                }
-            }
-        });
+<script>
+const $ = (id) => document.getElementById(id);
 
-        // Bar Chart - Severity
-        const barCtx = document.getElementById('severityBarChart').getContext('2d');
-        new Chart(barCtx, {
-            type: 'bar',
-            data: {
-                labels: ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'],
-                datasets: [{
-                    label: 'Issues Count',
-                    data: [5, 8, 12, 15],
-                    backgroundColor: ['#ff6b6b', '#ffd93d', '#4d96ff', '#6bcb77'],
-                    borderRadius: 6
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: {
-                        labels: { color: '#a0b4c8' }
-                    }
-                },
-                scales: {
-                    x: { ticks: { color: '#a0b4c8' }, grid: { color: 'rgba(255,255,255,0.05)' } },
-                    y: { ticks: { color: '#a0b4c8' }, grid: { color: 'rgba(255,255,255,0.05)' } }
-                }
-            }
+function el(tag, className, text) {
+    const n = document.createElement(tag);
+    if (className) n.className = className;
+    if (text !== undefined) n.textContent = text;
+    return n;
+}
+
+function bars(box, data, severityColors) {
+    box.replaceChildren();
+    const entries = Object.entries(data).sort((a, b) => b[1] - a[1]).slice(0, 12);
+    if (!entries.length) {
+        box.appendChild(el("p", "empty", "No data yet. Run an analysis on the Review page."));
+        return;
+    }
+    const max = Math.max(...entries.map((e) => e[1]));
+    entries.forEach(([name, value]) => {
+        const row = el("div", "bar");
+        const track = el("div", "track");
+        const fill = el("div", "fill" + (severityColors ? " " + name : ""));
+        fill.style.width = Math.max(4, Math.round(100 * value / max)) + "%";
+        track.appendChild(fill);
+        row.append(el("div", "name", name), track, el("div", "val", String(value)));
+        box.appendChild(row);
+    });
+}
+
+function simpleTable(box, header, rows) {
+    box.replaceChildren();
+    if (!rows.length) {
+        box.appendChild(el("p", "empty", "Nothing to show yet."));
+        return;
+    }
+    const table = el("table");
+    const head = el("tr");
+    header.forEach((h) => head.appendChild(el("th", "", h)));
+    table.appendChild(head);
+    rows.forEach((cells) => {
+        const tr = el("tr");
+        cells.forEach((c) => {
+            const td = el("td", c.cls || "", c.text !== undefined ? c.text : String(c));
+            tr.appendChild(td);
         });
-    </script>
+        table.appendChild(tr);
+    });
+    box.appendChild(table);
+}
+
+async function load() {
+    const [stats, bench, langs] = await Promise.all([
+        fetch("/api/stats").then((r) => r.json()),
+        fetch("/api/benchmark").then((r) => r.json()),
+        fetch("/api/languages").then((r) => r.json())
+    ]);
+
+    $("kAnalyses").textContent = stats.total_analyses.toLocaleString();
+    $("kLines").textContent = stats.total_lines.toLocaleString();
+    $("kIssues").textContent = stats.total_issues.toLocaleString();
+    $("kFixes").textContent = stats.total_fixes.toLocaleString();
+    $("kVerified").textContent = stats.verified_rate + "%";
+    $("kTime").textContent = stats.average_ms.toLocaleString();
+
+    bars($("types"), stats.issue_types, false);
+    bars($("severity"), stats.severities, true);
+    bars($("langs"), stats.languages, false);
+    simpleTable($("recent"), ["Time", "Language", "Lines", "Issues", "Fixes", "OK"],
+        stats.recent.map((r) => [r.time, r.language, r.lines, r.issues, r.fixes,
+            {text: r.verified ? "yes" : "no", cls: r.verified ? "ok" : "no"}]));
+
+    const box = $("bench");
+    box.replaceChildren();
+    const b = bench.benchmark;
+    if (!b) {
+        box.appendChild(el("p", "empty", "Run  python -m tests.run_benchmark  to generate the accuracy table."));
+    } else {
+        box.appendChild(el("p", "empty", b.cases + " labelled test programs in " + b.languages.length + " languages. Mode: " + b.mode + "."));
+        simpleTable(box, ["Metric", "Value"], [
+            ["Precision", (b.precision * 100).toFixed(1) + "%"],
+            ["Recall", (b.recall * 100).toFixed(1) + "%"],
+            ["F1 score", (b.f1 * 100).toFixed(1) + "%"],
+            ["Fix verified", (b.fix_success_rate * 100).toFixed(1) + "%"],
+            ["Clean files flagged", b.false_positive_files + " of " + b.clean_files]
+        ].map((r) => r));
+    }
+
+    const tools = [];
+    Object.entries(langs.compilers).forEach(([name, ok]) => {
+        tools.push([name, {text: ok ? "installed (used for real verification)" : "not installed", cls: ok ? "ok" : "no"}]);
+    });
+    simpleTable($("tools"), ["Tool", "Status"], tools);
+}
+load().catch(() => {
+    document.querySelector(".sub").textContent = "Could not load dashboard data. Is the server running?";
+});
+</script>
 </body>
 </html>

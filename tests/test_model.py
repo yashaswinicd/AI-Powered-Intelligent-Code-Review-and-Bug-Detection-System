@@ -1,35 +1,32 @@
+﻿import subprocess
 import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 
 def test_train_model():
-    # Run train.py as subprocess
-    import subprocess
     result = subprocess.run(
-        ['python', 'train.py'],
+        [sys.executable, "train.py"],
         capture_output=True,
         text=True,
-        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cwd=PROJECT_ROOT,
     )
-    assert 'Training Complete' in result.stdout
-    print("✅ test_train_model passed!")
-    print(result.stdout)
+    assert result.returncode == 0, result.stderr
+    assert "Model trained and saved." in result.stdout
 
-def test_predict():
-    # Run predict.py as subprocess
-    import subprocess
+
+def test_predict(tmp_path):
+    sample_file = tmp_path / "sample.py"
+    sample_file.write_text(
+        "def add(a, b):\n    return a + b\n",
+        encoding="utf-8",
+    )
     result = subprocess.run(
-        ['python', 'predict.py'],
+        [sys.executable, "predict.py", str(sample_file)],
         capture_output=True,
         text=True,
-        cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cwd=PROJECT_ROOT,
     )
-    assert result.returncode == 0
-    print("✅ test_predict passed!")
-    print(result.stdout)
-
-if __name__ == "__main__":
-    print("🧪 Running Model Tests...\n")
-    test_train_model()
-    test_predict()
-    print("\n🎉 All model tests passed!")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip(), "Prediction output should not be empty"

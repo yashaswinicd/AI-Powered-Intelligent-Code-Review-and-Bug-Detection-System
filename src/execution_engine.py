@@ -1,399 +1,178 @@
+"""Run Python code in a restricted subprocess.
 
+Protection layers (best effort, see README "Limitations"):
+  1. A static policy check refuses code that imports process/network/file
+     system modules or calls dangerous built-ins.
+  2. The code runs in a separate interpreter (-I isolated mode) inside an
+     empty temporary directory with a minimal environment.
+  3. A wall-clock timeout, output limit and (on Linux/macOS) CPU, memory
+     and file-size limits are applied.
+
+This is a safety net for a study project, not a security boundary. Truly
+untrusted code must be run in a container or virtual machine.
+"""
+
+import ast
 import os
 import re
 import subprocess
-import tempfile
 import sys
-from pathlib import Path
+import tempfile
+
+BLOCKED_MODULES = {
+    "subprocess", "shutil", "socket", "ctypes", "multiprocessing", "pty",
+    "signal", "requests", "urllib", "http", "ftplib", "smtplib", "telnetlib",
+    "asyncio.subprocess", "importlib", "pickle", "marshal", "webbrowser",
+    "tkinter", "pathlib", "glob", "tempfile", "resource", "mmap", "sqlite3",
+}
+BLOCKED_CALLS = {"eval", "exec", "compile", "__import__",
+                 "breakpoint", "getattr", "setattr", "delattr", "globals",
+                 "locals", "vars", "memoryview", "exit", "quit"}
+BLOCKED_OS_ATTRS = {
+    "system", "popen", "remove", "unlink", "rmdir", "removedirs", "rename",
+    "replace", "kill", "killpg", "fork", "forkpty", "execv", "execve",
+    "execl", "execlp", "execvp", "spawnl", "spawnv", "chmod", "chown",
+    "mkdir", "makedirs", "listdir", "scandir", "walk", "startfile",
+    "environ", "putenv", "truncate", "write", "symlink", "link",
+}
+BLOCKED_DUNDERS = {"__class__", "__bases__", "__subclasses__", "__globals__",
+                   "__builtins__", "__code__", "__mro__", "__import__",
+                   "__loader__", "__spec__", "__getattribute__"}
+
+MAX_OUTPUT = 20000
+
+
+def _open_violation(node):
+    """open() is allowed for reading, and for writing only to a plain
+    relative file name (it ends up inside the throw-away sandbox folder)."""
+    mode = "r"
+    if len(node.args) > 1:
+        arg = node.args[1]
+        if not (isinstance(arg, ast.Constant) and isinstance(arg.value, str)):
+            return "open() needs a literal mode string in the sandbox."
+        mode = arg.value
+    for kw in node.keywords:
+        if kw.arg == "mode":
+            if not (isinstance(kw.value, ast.Constant)
+                    and isinstance(kw.value.value, str)):
+                return "open() needs a literal mode string in the sandbox."
+            mode = kw.value.value
+    if not any(c in mode for c in "wax+"):
+        return None
+    target = node.args[0] if node.args else None
+    if isinstance(target, ast.Constant) and isinstance(target.value, str):
+        path = target.value.replace("\\", "/")
+        if not path.startswith("/") and ":" not in path and ".." not in path:
+            return None
+    return ("Writing files is only allowed for a plain relative file name "
+            "in the sandbox.")
+
+
+def policy_violation(code):
+    """Return (message, line) if the code breaks the policy, else None."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return None  # the interpreter will report the syntax error itself
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                top = alias.name.split(".")[0]
+                if top in BLOCKED_MODULES:
+                    return (f"Importing '{alias.name}' is not allowed in "
+                            "the sandbox.", node.lineno)
+        elif isinstance(node, ast.ImportFrom):
+            top = (node.module or "").split(".")[0]
+            if top in BLOCKED_MODULES:
+                return (f"Importing from '{node.module}' is not allowed "
+                        "in the sandbox.", node.lineno)
+            if top == "os" and any(a.name in BLOCKED_OS_ATTRS
+                                   for a in node.names):
+                return ("This 'os' function is not allowed in the sandbox.",
+                        node.lineno)
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name) and func.id == "open":
+                problem = _open_violation(node)
+                if problem:
+                    return problem, node.lineno
+            if isinstance(func, ast.Name) and func.id in BLOCKED_CALLS:
+                return (f"Calling '{func.id}()' is not allowed in the "
+                        "sandbox.", node.lineno)
+        elif isinstance(node, ast.Attribute):
+            if node.attr in BLOCKED_DUNDERS:
+                return (f"Access to '{node.attr}' is not allowed in the "
+                        "sandbox.", node.lineno)
+            if isinstance(node.value, ast.Name) and node.value.id == "os" \
+                    and node.attr in BLOCKED_OS_ATTRS:
+                return (f"'os.{node.attr}' is not allowed in the sandbox.",
+                        node.lineno)
+            if isinstance(node.value, ast.Name) and node.value.id == "sys" \
+                    and node.attr in ("modules", "exit"):
+                return (f"'sys.{node.attr}' is not allowed in the sandbox.",
+                        node.lineno)
+    return None
+
+
+def _limit_resources():  # pragma: no cover - runs in the child process
+    try:
+        import resource
+        resource.setrlimit(resource.RLIMIT_CPU, (8, 8))
+        resource.setrlimit(resource.RLIMIT_AS, (512 * 2**20, 512 * 2**20))
+        resource.setrlimit(resource.RLIMIT_FSIZE, (1 * 2**20, 1 * 2**20))
+        resource.setrlimit(resource.RLIMIT_NPROC, (64, 64))
+    except Exception:
+        pass
 
 
 class ExecutionEngine:
-    """
-    Execute Python and Java code with a timeout.
+    def __init__(self, timeout=5):
+        self.timeout = timeout
 
-    IMPORTANT:
-    - This is NOT a security sandbox.
-    - Execution is disabled by default.
-    - Enable execution only for trusted local demo code.
-    - Never run untrusted code on a public server without
-      proper OS/container isolation.
-    """
+    def run(self, code, stdin_input=""):
+        blocked = policy_violation(code)
+        if blocked:
+            message, line = blocked
+            return {"success": False, "return_code": None, "output": "",
+                    "error": message, "error_type": "BlockedByPolicy",
+                    "error_line": line, "skipped": True}
 
-    DANGEROUS_PATTERNS = [
-        r"\beval\s*\(",
-        r"\bexec\s*\(",
-        r"\bos\s*\.\s*system\s*\(",
-        r"\bsubprocess\s*\.\s*(?:call|run|Popen)\s*\(",
-        r"\bpickle\s*\.\s*loads?\s*\(",
-    ]
+        with tempfile.TemporaryDirectory(prefix="sandbox_") as tmp:
+            path = os.path.join(tmp, "main.py")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(code)
+            env = {"PYTHONIOENCODING": "utf-8", "PYTHONDONTWRITEBYTECODE": "1"}
+            if os.name == "nt":
+                env["SYSTEMROOT"] = os.environ.get("SYSTEMROOT", "")
+            kwargs = {"preexec_fn": _limit_resources} if os.name == "posix" \
+                else {}
+            try:
+                proc = subprocess.run(
+                    [sys.executable, "-I", "-B", path],
+                    input=stdin_input or "", capture_output=True, text=True,
+                    timeout=self.timeout, cwd=tmp, env=env,
+                    encoding="utf-8", errors="replace", **kwargs)
+            except subprocess.TimeoutExpired:
+                return {"success": False, "return_code": None, "output": "",
+                        "error": f"Execution stopped after {self.timeout} "
+                                 "seconds (possible infinite loop or input "
+                                 "that never ends).",
+                        "error_type": "TimeoutError", "error_line": None}
 
-    def __init__(self, allow_unsafe_local_execution=None):
-        if allow_unsafe_local_execution is None:
-            allow_unsafe_local_execution = (
-                os.environ.get(
-                    "ENABLE_UNSAFE_LOCAL_EXECUTION", "0"
-                ).strip() == "1"
-            )
-
-        self.allow_unsafe_local_execution = bool(
-            allow_unsafe_local_execution
-        )
-
-    @staticmethod
-    def _result(
-        success,
-        return_code,
-        output="",
-        error="",
-        error_type=None,
-        error_line=None,
-    ):
-        return {
-            "success": success,
-            "return_code": return_code,
-            "output": output,
-            "error": error,
-            "error_type": error_type,
-            "error_line": error_line,
-        }
-
-    def is_dangerous(self, code):
-        """Return the first matching basic dangerous pattern."""
-        for pattern in self.DANGEROUS_PATTERNS:
-            if re.search(pattern, code):
-                return pattern
-        return None
-
-    def _run_python(self, code, timeout, stdin_input):
-        file_path = None
-
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                suffix=".py",
-                delete=False,
-                encoding="utf-8",
-            ) as file:
-                file.write(code)
-                file_path = file.name
-
-            result = subprocess.run(
-                [sys.executable, file_path],
-                input=stdin_input,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-                shell=False,
-            )
-
-            stdout = result.stdout.strip()
-            stderr = result.stderr.strip()
-
-            if result.returncode == 0:
-                return self._result(
-                    True,
-                    result.returncode,
-                    output=stdout,
-                )
-
-            line_matches = re.findall(
-                r'File ".*?", line (\d+)',
-                stderr,
-            )
-            error_line = (
-                int(line_matches[-1]) if line_matches else None
-            )
-
-            error_type = None
-            error_message = stderr
-
-            if stderr:
-                last_line = stderr.splitlines()[-1]
-                match = re.match(
-                    r"([A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Warning)):\s*(.*)",
-                    last_line,
-                )
-
-                if match:
-                    error_type = match.group(1)
-                    error_message = match.group(2)
-
-            return self._result(
-                False,
-                result.returncode,
-                output=stdout,
-                error=error_message,
-                error_type=error_type,
-                error_line=error_line,
-            )
-
-        except subprocess.TimeoutExpired:
-            return self._result(
-                False,
-                -1,
-                error="Execution timeout.",
-                error_type="TimeoutError",
-            )
-
-        except Exception as exc:
-            return self._result(
-                False,
-                -1,
-                error=str(exc),
-                error_type=type(exc).__name__,
-            )
-
-        finally:
-            if file_path and os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                except OSError:
-                    pass
-
-    def _run_java(self, code, timeout, stdin_input, filename):
-        class_name = Path(filename).stem
-
-        if not re.fullmatch(
-            r"[A-Za-z_$][A-Za-z0-9_$]*",
-            class_name,
-        ):
-            return self._result(
-                False,
-                -1,
-                error="Invalid Java filename/class name.",
-                error_type="InvalidFilename",
-            )
-
-        try:
-            with tempfile.TemporaryDirectory(
-                prefix="java_runner_"
-            ) as temp_dir:
-                java_file = os.path.join(
-                    temp_dir,
-                    class_name + ".java",
-                )
-
-                with open(
-                    java_file,
-                    "w",
-                    encoding="utf-8",
-                ) as file:
-                    file.write(code)
-
-                compile_result = subprocess.run(
-                    ["javac", java_file],
-                    cwd=temp_dir,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                    check=False,
-                    shell=False,
-                )
-
-                if compile_result.returncode != 0:
-                    compiler_error = compile_result.stderr.strip()
-
-                    line_match = re.search(
-                        rf"{re.escape(class_name)}\.java:(\d+):\s*error:",
-                        compiler_error,
-                    )
-
-                    return self._result(
-                        False,
-                        compile_result.returncode,
-                        error=(
-                            compiler_error
-                            or "Java compilation failed."
-                        ),
-                        error_type="CompilationError",
-                        error_line=(
-                            int(line_match.group(1))
-                            if line_match
-                            else None
-                        ),
-                    )
-
-                run_result = subprocess.run(
-                    ["java", "-cp", temp_dir, class_name],
-                    cwd=temp_dir,
-                    input=stdin_input,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                    check=False,
-                    shell=False,
-                )
-
-                stdout = run_result.stdout.strip()
-                stderr = run_result.stderr.strip()
-
-                if run_result.returncode == 0:
-                    return self._result(
-                        True,
-                        0,
-                        output=stdout,
-                    )
-
-                line_match = re.search(
-                    rf"{re.escape(class_name)}\.main\("
-                    rf"{re.escape(class_name)}\.java:(\d+)\)",
-                    stderr,
-                )
-
-                error_type = (
-                    "RuntimeError"
-                    if "Exception" in stderr or "Error" in stderr
-                    else "ExecutionError"
-                )
-
-                return self._result(
-                    False,
-                    run_result.returncode,
-                    output=stdout,
-                    error=stderr or "Java program failed.",
-                    error_type=error_type,
-                    error_line=(
-                        int(line_match.group(1))
-                        if line_match
-                        else None
-                    ),
-                )
-
-        except subprocess.TimeoutExpired:
-            return self._result(
-                False,
-                -1,
-                error="Java compilation or execution timeout.",
-                error_type="TimeoutError",
-            )
-
-        except FileNotFoundError:
-            return self._result(
-                False,
-                -1,
-                error="Java compiler/runtime not found. Check JDK PATH.",
-                error_type="JavaNotFound",
-            )
-
-        except Exception as exc:
-            return self._result(
-                False,
-                -1,
-                error=str(exc),
-                error_type=type(exc).__name__,
-            )
-
-    def run(
-        self,
-        code,
-        timeout=5,
-        stdin_input=None,
-        filename="code.py",
-    ):
-        if not isinstance(code, str):
-            return self._result(
-                False,
-                -1,
-                error="Code must be a string.",
-                error_type="TypeError",
-            )
-
-        if stdin_input is not None and not isinstance(
-            stdin_input, str
-        ):
-            return self._result(
-                False,
-                -1,
-                error="Test input must be a string.",
-                error_type="TypeError",
-            )
-
-        if len(code) > 1_000_000:
-            return self._result(
-                False,
-                -1,
-                error="Code exceeds execution size limit.",
-                error_type="InputTooLarge",
-            )
-
-        if (
-            not isinstance(timeout, (int, float))
-            or isinstance(timeout, bool)
-            or not 0 < timeout <= 10
-        ):
-            return self._result(
-                False,
-                -1,
-                error=(
-                    "Timeout must be greater than 0 "
-                    "and at most 10 seconds."
-                ),
-                error_type="InvalidTimeout",
-            )
-
-        if not isinstance(filename, str) or not filename.strip():
-            return self._result(
-                False,
-                -1,
-                error="A valid filename is required.",
-                error_type="InvalidFilename",
-            )
-
-        filename = os.path.basename(filename)
-        extension = Path(filename).suffix.lower()
-
-        if extension not in {".py", ".java"}:
-            return self._result(
-                False,
-                -1,
-                error=(
-                    f"Execution is not supported for "
-                    f"{extension or 'this file type'}."
-                ),
-                error_type="Unsupported",
-            )
-
-        # Basic pattern check, NOT a complete security boundary.
-        dangerous = self.is_dangerous(code)
-
-        if dangerous:
-            return self._result(
-                False,
-                -2,
-                error=(
-                    "Execution blocked by a basic "
-                    "dangerous-pattern check."
-                ),
-                error_type="SecurityBlock",
-            )
-
-        # Execution stays disabled unless explicitly enabled
-        # for trusted local demo code.
-        if not self.allow_unsafe_local_execution:
-            return self._result(
-                False,
-                -2,
-                error=(
-                    "Execution is disabled by default because "
-                    "submitted code is not sandboxed. For trusted "
-                    "local demo code only, set "
-                    "ENABLE_UNSAFE_LOCAL_EXECUTION=1. "
-                    "Do not enable this for public deployments."
-                ),
-                error_type="ExecutionDisabled",
-            )
-
-        if extension == ".py":
-            return self._run_python(
-                code,
-                timeout,
-                stdin_input,
-            )
-
-        return self._run_java(
-            code,
-            timeout,
-            stdin_input,
-            filename,
-        )
+        stdout = proc.stdout[:MAX_OUTPUT]
+        stderr = proc.stderr[:MAX_OUTPUT]
+        error_type, error_line = None, None
+        if proc.returncode != 0:
+            lines = [l for l in stderr.strip().splitlines() if l.strip()]
+            if lines:
+                m = re.match(r"^([A-Za-z_][\w.]*(?:Error|Exception|Exit|"
+                             r"Interrupt))\b", lines[-1])
+                error_type = m.group(1) if m else "RuntimeError"
+            hits = re.findall(r'File ".*?main\.py", line (\d+)', stderr)
+            error_line = int(hits[-1]) if hits else None
+            stderr = re.sub(r'File ".*?main\.py"', 'File "<your code>"',
+                            stderr)
+        return {"success": proc.returncode == 0,
+                "return_code": proc.returncode, "output": stdout,
+                "error": stderr, "error_type": error_type,
+                "error_line": error_line}

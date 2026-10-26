@@ -1,0 +1,25 @@
+{
+  "mode": "rule engine only (no compiler)",
+  "cases": 83,
+  "languages": [
+    "c",
+    "cpp",
+    "csharp",
+    "go",
+    "java",
+    "javascript",
+    "kotlin",
+    "php",
+    "python",
+    "rust",
+    "swift",
+    "typescript"
+  ],
+  "clean_files": 29,
+  "false_positive_files": 0,
+  "precision": 1.0,
+  "recall": 1.0,
+  "f1": 1.0,
+  "fix_success_rate": 1.0,
+  "seconds": 19.85
+}

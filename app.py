@@ -1,230 +1,52 @@
-﻿
+"""Flask web application: AI Code Review, Bug Detection and Auto-Fix."""
+
+import json
+import logging
 import os
-import threading
-import webbrowser
 
-from flask import Flask, request, jsonify, render_template
+from flask import (Flask, Response, jsonify, render_template, request)
 
-from src.review_engine import ReviewEngine
-from src.security_checker import SecurityChecker
-from src.debugging_engine import DebuggingEngine
-from src.execution_engine import ExecutionEngine
-from src.verification_engine import VerificationEngine
-
-from utils.file_handler import (
-    validate_code,
-    save_uploaded_file,
-    read_uploaded_file,
-)
-
+from config.settings import (ALLOWED_EXTENSIONS, BENCHMARK_PATH, DEBUG, HOST,
+                             MAX_CODE_LINES, MAX_FILE_SIZE, PORT, SECRET_KEY)
+from src import compiler_check, report_generator
+from src.language_support import supported_languages
+from src.ml_model import load_metrics
+from src.pipeline import get_result, process_code
+from utils import stats_store
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
-
-URL = "http://127.0.0.1:5000"
-
-
-# =========================================================
-# ENGINE INITIALIZATION
-# =========================================================
-
-review = ReviewEngine()
-security = SecurityChecker()
-debugger = DebuggingEngine()
-executor = ExecutionEngine()
-verifier = VerificationEngine()
+app.config["SECRET_KEY"] = SECRET_KEY
+app.config["MAX_CONTENT_LENGTH"] = MAX_FILE_SIZE
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger("code-review")
 
 
-# =========================================================
-# CODE ANALYSIS
-# =========================================================
-
-def analyze(code, filename):
-    return {
-        "review": review.review(code, filename),
-        "security": security.check(code),
-    }
+def _error(message, status=400):
+    return jsonify({"success": False, "error": message}), status
 
 
-def collect_issues(analysis):
-    """Combine review bugs and security vulnerabilities."""
-    review_data = analysis.get("review", {})
-    bug_data = review_data.get("bugs", {})
-
-    bugs = (
-        bug_data.get("bugs", [])
-        if isinstance(bug_data, dict)
-        else []
-    )
-
-    security_data = analysis.get("security", {})
-    vulnerabilities = security_data.get("vulnerabilities", [])
-
-    if not isinstance(bugs, list):
-        bugs = []
-
-    if not isinstance(vulnerabilities, list):
-        vulnerabilities = []
-
-    return bugs + vulnerabilities
+def _run(apply_fixes):
+    data = request.get_json(silent=True) or {}
+    code = data.get("code", "")
+    if not isinstance(code, str) or not code.strip():
+        return _error("Please provide some code.")
+    try:
+        result = process_code(
+            code, filename=data.get("filename") or None,
+            language=data.get("language") or None,
+            stdin_input=data.get("stdin_input", ""),
+            apply_fixes=apply_fixes)
+    except ValueError as exc:
+        return _error(str(exc))
+    except Exception:
+        log.exception("Processing failed")
+        return _error("The analysis failed unexpectedly. Check the server "
+                      "log for details.", 500)
+    return jsonify(result)
 
 
-def collect_manual_review_issues(issues):
-    """Return issues that require human review instead of guessed fixes."""
-    manual_review_issues = []
-
-    division_types = {
-        "division by zero",
-        "potential division by zero",
-    }
-
-    for issue in issues:
-        if not isinstance(issue, dict):
-            continue
-
-        issue_type = str(issue.get("type", "")).strip().lower()
-
-        if issue_type in division_types:
-            manual_review_issues.append({
-                **issue,
-                "manual_review_required": True,
-                "suggestion": (
-                    "Check that the divisor is non-zero before division. "
-                    "Automatic repair was not applied because the intended "
-                    "error-handling behavior cannot be inferred safely."
-                ),
-            })
-
-    return manual_review_issues
-
-
-# =========================================================
-# DEBUGGING + EXECUTION
-# =========================================================
-
-def debug_code(code, filename, stdin_input=None):
-    original_analysis = analyze(code, filename)
-
-    current_code = code
-    all_fixes = []
-
-    extension = os.path.splitext(filename)[1].lower()
-    is_python = extension == ".py"
-    is_java = extension == ".java"
-
-    # Existing auto-fix engine only supports Python.
-    max_iterations = 10 if is_python else 0
-
-    for _ in range(max_iterations):
-        current_analysis = analyze(current_code, filename)
-        current_issues = collect_issues(current_analysis)
-
-        if not current_issues:
-            break
-
-        fixed_result = debugger.fix(current_code)
-
-        if not isinstance(fixed_result, dict):
-            break
-
-        candidate_code = fixed_result.get(
-            "fixed_code", current_code
-        )
-        iteration_fixes = fixed_result.get("fixes", [])
-
-        if not isinstance(candidate_code, str):
-            break
-
-        if not isinstance(iteration_fixes, list):
-            iteration_fixes = []
-
-        if candidate_code == current_code:
-            break
-
-        # Validate Python fixes before accepting them.
-        if is_python and not debugger.is_valid_python(candidate_code):
-            app.logger.warning(
-                "Rejected auto-fix: Python syntax validation failed."
-            )
-            break
-
-        all_fixes.extend(iteration_fixes)
-        current_code = candidate_code
-
-    final_analysis = analyze(current_code, filename)
-
-    original_issues = collect_issues(original_analysis)
-    remaining_issues = collect_issues(final_analysis)
-
-    # Report unresolved division issues for human review.
-    manual_review_issues = collect_manual_review_issues(
-        remaining_issues
-    )
-
-    # Execute Python and Java through ExecutionEngine.
-    if is_python or is_java:
-        execution_result = executor.run(
-            current_code,
-            stdin_input=stdin_input,
-            filename=filename,
-        )
-
-        # Verification is preliminary; it does not prove correctness
-        # for every possible input.
-        verification_result = verifier.verify(
-            original_issues,
-            remaining_issues,
-            execution_result,
-        )
-    else:
-        execution_result = {
-            "success": False,
-            "return_code": None,
-            "output": "",
-            "error": (
-                f"Execution is not supported for "
-                f"{extension or 'this file type'}."
-            ),
-            "error_type": "Unsupported",
-            "error_line": None,
-        }
-
-        verification_result = {
-            "verified": False,
-            "fixed_count": 0,
-            "remaining_count": len(remaining_issues),
-            "execution_success": False,
-            "fixed_issues": [],
-            "remaining_issues": [
-                bug.get("type")
-                for bug in remaining_issues
-                if isinstance(bug, dict)
-            ],
-            "message": (
-                "Execution is unsupported for this language. "
-                "Review the detected issues."
-            ),
-        }
-
-    return {
-        "filename": filename,
-        "original_code": code,
-        "fixed_code": current_code,
-        "original_analysis": original_analysis,
-        "fixed_analysis": final_analysis,
-        "fixes": all_fixes,
-        "total_fixes": len(all_fixes),
-        "remaining_bugs": remaining_issues,
-        "manual_review_issues": manual_review_issues,
-        "execution": execution_result,
-        "verification": verification_result,
-    }
-
-
-# =========================================================
-# WEB PAGES
-# =========================================================
-
+# ---------------------------------------------------------------- pages
 @app.route("/")
 def home():
     return render_template("index.html")
@@ -232,226 +54,112 @@ def home():
 
 @app.route("/review")
 def review_page():
-    return render_template("review.html")
+    return render_template("review.html",
+                           languages=supported_languages(),
+                           max_lines=MAX_CODE_LINES)
 
 
 @app.route("/dashboard")
-def dashboard():
+def dashboard_page():
     return render_template("dashboard.html")
 
 
-# =========================================================
-# REQUEST VALIDATION
-# =========================================================
-
-def validate_request_payload(data):
-    if not isinstance(data, dict) or "code" not in data:
-        return None, None, None, (
-            jsonify({
-                "success": False,
-                "error": "Code required",
-            }),
-            400,
-        )
-
-    code = data["code"]
-    filename = data.get("filename", "code.py")
-    stdin_input = data.get("stdin_input")
-
-    if not isinstance(code, str):
-        return None, None, None, (
-            jsonify({
-                "success": False,
-                "error": "Code must be a string",
-            }),
-            400,
-        )
-
-    if not isinstance(filename, str) or not filename.strip():
-        return None, None, None, (
-            jsonify({
-                "success": False,
-                "error": "A valid filename is required",
-            }),
-            400,
-        )
-
-    if stdin_input is not None and not isinstance(stdin_input, str):
-        return None, None, None, (
-            jsonify({
-                "success": False,
-                "error": "Test input must be a string",
-            }),
-            400,
-        )
-
-    if stdin_input is not None and len(stdin_input) > 10000:
-        return None, None, None, (
-            jsonify({
-                "success": False,
-                "error": "Test input cannot exceed 10000 characters",
-            }),
-            400,
-        )
-
-    return code, os.path.basename(filename), stdin_input, None
-
-
-# =========================================================
-# CODE ANALYSIS API
-# =========================================================
-
+# ------------------------------------------------------------------ API
 @app.route("/analyze", methods=["POST"])
-def analyze_api():
-    data = request.get_json(silent=True)
-    code, filename, stdin_input, error = validate_request_payload(data)
+def analyze_route():
+    """Detect problems only (no changes to the code)."""
+    return _run(apply_fixes=False)
 
-    if error:
-        return error
-
-    try:
-        validate_code(code, filename)
-        result = analyze(code, filename)
-
-        return jsonify({
-            "success": True,
-            **result,
-        })
-
-    except Exception:
-        app.logger.exception("Code analysis failed")
-        return jsonify({
-            "success": False,
-            "error": (
-                "Code analysis failed. "
-                "Check the server terminal for details."
-            ),
-        }), 400
-
-
-# =========================================================
-# DEBUG API
-# =========================================================
 
 @app.route("/debug", methods=["POST"])
-def debug_api():
-    data = request.get_json(silent=True)
-    code, filename, stdin_input, error = validate_request_payload(data)
+def debug_route():
+    """Detect, fix, verify and return the corrected code."""
+    return _run(apply_fixes=True)
 
-    if error:
-        return error
-
-    try:
-        validate_code(code, filename)
-
-        result = debug_code(
-            code,
-            filename,
-            stdin_input=stdin_input,
-        )
-
-        return jsonify({
-            "success": True,
-            **result,
-        })
-
-    except Exception:
-        app.logger.exception("Debugging request failed")
-        return jsonify({
-            "success": False,
-            "error": (
-                "Debugging failed. "
-                "Check the server terminal for details."
-            ),
-        }), 400
-
-
-# =========================================================
-# FILE UPLOAD + DEBUG
-# =========================================================
 
 @app.route("/upload-debug", methods=["POST"])
-def upload_debug():
-    if "file" not in request.files:
-        return jsonify({
-            "success": False,
-            "error": "No file uploaded",
-        }), 400
-
-    uploaded_file = request.files["file"]
-
-    if not uploaded_file.filename:
-        return jsonify({
-            "success": False,
-            "error": "Choose a file first",
-        }), 400
-
-    path = None
-
+def upload_debug_route():
+    file = request.files.get("file")
+    if not file or not file.filename:
+        return _error("Please choose a file to upload.")
+    extension = os.path.splitext(file.filename)[1].lower().lstrip(".")
+    if extension not in ALLOWED_EXTENSIONS:
+        return _error("Unsupported file type. Supported: " +
+                      ", ".join(sorted("." + e for e in ALLOWED_EXTENSIONS)))
+    raw = file.read()
+    if b"\x00" in raw[:4096]:
+        return _error("This looks like a binary file, not source code.")
+    code = raw.decode("utf-8", errors="replace")
     try:
-        path = save_uploaded_file(uploaded_file)
-        code = read_uploaded_file(path)
-        filename = os.path.basename(uploaded_file.filename)
-
-        validate_code(code, filename)
-        result = debug_code(code, filename)
-
-        return jsonify({
-            "success": True,
-            **result,
-        })
-
+        result = process_code(
+            code, filename=file.filename,
+            language=request.form.get("language") or None,
+            stdin_input=request.form.get("stdin_input", ""))
+    except ValueError as exc:
+        return _error(str(exc))
     except Exception:
-        app.logger.exception("File upload/debugging failed")
-        return jsonify({
-            "success": False,
-            "error": (
-                "File debugging failed. "
-                "Check the server terminal for details."
-            ),
-        }), 400
-
-    finally:
-        # Preserve the existing file-handler cleanup behavior.
-        pass
+        log.exception("Upload processing failed")
+        return _error("The analysis failed unexpectedly.", 500)
+    return jsonify(result)
 
 
-# =========================================================
-# HEALTH CHECK
-# =========================================================
+@app.route("/report/<result_id>/<fmt>")
+def report_route(result_id, fmt):
+    result = get_result(result_id)
+    if result is None:
+        return _error("This result has expired. Run the analysis again.", 404)
+    if fmt == "json":
+        body, mime = report_generator.to_json(result), "application/json"
+    elif fmt == "txt":
+        body, mime = report_generator.to_text(result), "text/plain"
+    elif fmt == "pdf":
+        body = report_generator.to_pdf(result)
+        if body is None:
+            return _error("PDF export needs the 'reportlab' package.", 501)
+        mime = "application/pdf"
+    else:
+        return _error("Unknown report format.", 404)
+    headers = {"Content-Disposition":
+               f"attachment; filename=code_review_report.{fmt}"}
+    return Response(body, mimetype=mime, headers=headers)
+
+
+@app.route("/api/languages")
+def languages_route():
+    return jsonify({"languages": supported_languages(),
+                    "compilers": compiler_check.available_tools()})
+
+
+@app.route("/api/stats")
+def stats_route():
+    return jsonify(stats_store.summary())
+
+
+@app.route("/api/benchmark")
+def benchmark_route():
+    try:
+        with open(BENCHMARK_PATH, encoding="utf-8") as fh:
+            benchmark = json.load(fh)
+    except (OSError, ValueError):
+        benchmark = None
+    return jsonify({"benchmark": benchmark, "ml": load_metrics()})
+
 
 @app.route("/api/health")
-def health():
-    return jsonify({
-        "status": "healthy",
-        "service": "AI Code Review and Debugging System",
-    })
+def health_route():
+    return jsonify({"status": "ok", "languages": len(supported_languages()),
+                    "compilers": compiler_check.available_tools()})
 
 
-# =========================================================
-# START SERVER
-# =========================================================
+@app.errorhandler(413)
+def too_large(_):
+    return _error(f"The file is larger than {MAX_FILE_SIZE // 2**20} MB.", 413)
+
+
+@app.errorhandler(404)
+def not_found(_):
+    return _error("Page not found.", 404)
+
 
 if __name__ == "__main__":
-    print("=" * 55)
-    print("AI CODE REVIEW & DEBUGGING SYSTEM")
-    print("=" * 55)
-    print("Source size limit: 5 MB")
-    print("Python auto-fix: ENABLED")
-    print("Python execution: ENABLED")
-    print("Java execution: CONNECTED IF SUPPORTED BY EXECUTION ENGINE")
-    print("Java auto-fix: NOT IMPLEMENTED")
-    print(f"Website: {URL}")
-    print("=" * 55)
-
-    threading.Timer(
-        1.5,
-        lambda: webbrowser.open(URL),
-    ).start()
-
-    app.run(
-        host="127.0.0.1",
-        port=5000,
-        debug=False,
-        use_reloader=False,
-    )
+    app.run(host=HOST, port=PORT, debug=DEBUG)

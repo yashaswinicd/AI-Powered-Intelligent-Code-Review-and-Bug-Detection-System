@@ -1,26 +1,27 @@
-# Python
+﻿# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
+*.py[cod]
+.venv/
 venv/
+env/
 .env
 
-# Models (large files)
-models/*.pkl
-
-# Uploads & Outputs
-uploads/
-outputs/
-
-# VS Code
+# Editors / OS
 .vscode/
-
-# OS Files
+.idea/
 .DS_Store
 Thumbs.db
 
-# Jupyter
-.ipynb_checkpoints/
+# Generated runtime data
+outputs/logs/
+outputs/predictions/
+outputs/reports/
+outputs/stats.json
+uploads/*
+
+# Keep required folders and benchmark results
+!uploads/.gitkeep
+!outputs/benchmark.json
+
+# Model artifacts: keep the model required by V2
+!models/code_review_model.pkl

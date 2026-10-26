@@ -1,219 +1,161 @@
-🤖 AI-Powered Intelligent Code Review & Bug Detection System
+# AI-Powered Intelligent Code Review & Bug Detection System
 
-Detect · Explain · Fix · Execute · Verify
+**Detect · Locate · Fix · Verify** — for 12 programming languages.
 
-An intelligent code review and debugging web application built with Python and Flask. It analyzes source code, identifies supported bugs and potential security issues, applies selected automatic fixes, executes code, and reports verification results.
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![Flask](https://img.shields.io/badge/Flask-Web%20Framework-green)
+![Status](https://img.shields.io/badge/Project-Educational-orange)
 
-"Python" (https://img.shields.io/badge/Python-3.10%2B-blue)
-"Flask" (https://img.shields.io/badge/Flask-Web%20Framework-green)
-"GitHub" (https://img.shields.io/badge/Version%20Control-GitHub-black)
-"Status" (https://img.shields.io/badge/Project-Educational-orange)
+![Demo](screenshots/demo.gif)
 
----
-
-🎬 Project Demo
-
-"AI Code Review and Debugging Demo" (screenshots/demo.gif)
+Paste or upload code in any supported language and any length (up to 50,000
+lines). The system reports **every problem with its line number**, repairs
+what can be repaired safely, **verifies the corrected code**, and returns it
+together with a diff and a downloadable report.
 
 ---
 
-✨ Features
+## What it does
 
-- Bug Detection: Detect supported issues such as syntax errors, division by zero, and undefined variables.
-- Code Review: Analyze code and report potential quality issues.
-- Security Analysis: Identify supported security risk patterns.
-- Automatic Fixes: Apply selected corrections when a safe fix is available.
-- Code Execution: Run submitted code and report output or runtime errors.
-- Fix Verification: Re-analyze corrected code and report whether detected issues remain.
-- File Upload: Upload source files through the web interface.
-- Code Quality Report: Display a quality score and detected issue summaries.
-- Web Interface: View code analysis, corrections, execution results, and verification status.
+| Step | What happens |
+|------|--------------|
+| 1. Detect language | From the file extension, the language you pick, or the code itself |
+| 2. Find problems | Syntax errors, bugs, security risks and style issues, each with line and column |
+| 3. Fix | Mechanical repairs are applied one at a time |
+| 4. Verify | After every repair the code is analysed again; a repair that does not help or breaks something else is discarded |
+| 5. Report | Corrected code, diff, quality score before/after, TXT / JSON / PDF report |
 
-«Detection and automatic-fix capabilities depend on the implemented rules. The application does not guarantee that every bug or security vulnerability will be detected or corrected.»
+### Supported languages
 
----
+Python, Java, C, C++, C#, JavaScript, TypeScript, Go, PHP, Rust, Kotlin, Swift.
 
-🖥️ Screenshots
+| Check | Python | Other languages |
+|-------|:-----:|:---------------:|
+| Missing colon / semicolon, unclosed or extra brackets, unterminated strings and comments | yes | yes |
+| Undefined variables (scope aware), typo correction, missing standard imports | yes | – |
+| Division by zero (literal, or a variable that is only ever zero) | yes | yes |
+| Hard-coded passwords / API keys → moved to environment variables | yes | most |
+| Empty `except` / `catch`, bare `except`, mutable default arguments | yes | catch blocks |
+| `if (x = 5)` assignment in a condition, Java `==` on strings, JS `==` | – | yes |
+| Unreachable code, unsafe C functions (`gets`, `strcpy` ...) | yes | yes |
+| SQL injection, XSS, weak hashes (MD5/SHA-1), `eval`, `pickle`, `os.system` | yes | yes |
+| Run the corrected program | sandboxed | compile-check if a compiler is installed |
 
-1. Home Page
-
-"Project Home Page" (screenshots/home.png)
-
-2. Code Review and Debugging Results
-
-"Code Review Results" (screenshots/review.png)
-
-3. Dashboard
-
-"Project Dashboard" (screenshots/dashboard.png)
-
----
-
-🛠️ Technology Stack
-
-Technology| Purpose
-Python| Backend development
-Flask| Web application framework
-Python AST| Python syntax and structural analysis
-HTML| Page structure
-CSS| Interface styling
-JavaScript| Frontend interactions
-Git and GitHub| Version control and repository hosting
-Scikit-learn / TF-IDF| Machine-learning components, where configured
+If **gcc / g++ / node / javac** are installed they are used as the final
+judge of syntax. If not, the built-in rule engine is used, so nothing extra
+has to be installed.
 
 ---
 
-📁 Project Structure
+## Quick start (Windows)
 
-AI-Powered Intelligent Code Review and Bug Detection System/
-│
-├── app.py
-├── requirements.txt
-├── README.md
-│
-├── src/
-│   ├── bug_detector.py
-│   ├── code_parser.py
-│   ├── debugging_engine.py
-│   ├── review_engine.py
-│   ├── security_checker.py
-│   ├── execution_engine.py
-│   └── verification_engine.py
-│
-├── templates/
-├── utils/
-├── tests/
-├── docs/
-└── screenshots/
-    ├── home.png
-    ├── review.png
-    ├── dashboard.png
-    └── demo.gif
-
-This structure illustrates the main project components. Actual files and folders may vary with the current repository version.
-
----
-
-🚀 Getting Started
-
-Prerequisites
-
-Install the following:
-
-- Python 3.10 or a compatible version
-- pip
-- Git
-
-Step 1: Clone the Repository
-
-git clone https://github.com/yashaswinicd/AI-Powered-Intelligent-Code-Review-and-Bug-Detection-System.git
-
-Step 2: Open the Project Folder
-
-cd AI-Powered-Intelligent-Code-Review-and-Bug-Detection-System
-
-Step 3: Create a Virtual Environment
-
+```bat
 python -m venv venv
-
-Step 4: Activate the Environment
-
-Windows PowerShell:
-
-.\venv\Scripts\Activate.ps1
-
-If PowerShell prevents activation, you can use the virtual environment's Python executable directly.
-
-Step 5: Install Dependencies
-
-python -m pip install -r requirements.txt
-
-Step 6: Run the Application
-
+venv\Scripts\activate
+pip install -r requirements.txt
 python app.py
+```
 
-Open the following address in your browser:
+Open http://127.0.0.1:5000 and go to **Review**.
+(`run.bat` does the last two steps for you.)
 
-http://127.0.0.1:5000
+## Using it
 
-The application may open the browser automatically when the server starts.
+1. Open **Review**, choose a language (or leave *Auto-detect*).
+2. Paste code or upload a file.
+3. Press **Analyze & Auto-Fix**.
+4. Read the issues, the highlighted problem lines, the changes, then copy or
+   download the corrected code and the report.
 
----
-
-🧪 Example: Automatic Syntax Fix
-
-Input Code
-
-if True
-    print("Hello World")
-
-Corrected Code
-
-if True:
-    print("Hello World")
-
-The application can detect the missing colon, apply the supported correction, execute the corrected code, and report verification status.
-
-Actual results depend on the implemented debugging rules.
+**Analyze only** lists the problems without changing anything.
 
 ---
 
-🧪 Testing
+## How the repair is kept safe
 
-The project can be tested using cases such as:
+* Every repair is a small text edit with exact positions.
+* After applying it the whole file is analysed again. The repair is accepted
+  only if the targeted problem is gone **and** no new syntax error appeared.
+* Fixes that change behaviour are described honestly. Example: a division by
+  a variable that is always zero is turned into a guarded expression that
+  returns `0`; the report says so, and you can change the value.
+* Problems that need a human decision (for example `x / 0` with a literal
+  zero, SQL built by string concatenation) are **listed but not changed**.
 
-- Valid Python programs
-- Syntax errors, such as missing colons
-- Division by zero
-- Undefined variables
-- Potential security risks
-- Large source files, including 10,000-line inputs
+## Project structure
 
-Test results should be recorded separately. The presence of a test file alone does not mean that the test has passed.
+```
+app.py                  Flask routes
+config/settings.py      Limits and paths
+src/
+  language_support.py   Language table + auto-detection
+  lexer.py              String/comment aware scanner (all languages)
+  universal_analyzer.py Brackets, semicolons, secrets, catch blocks ...
+  python_analyzer.py    Python AST analysis, scope resolver, syntax repair
+  security_checker.py   SQL injection, XSS, weak crypto, dangerous calls
+  compiler_check.py     Optional gcc / g++ / node / javac verification
+  universal_fixer.py    Analyse → fix → verify loop
+  execution_engine.py   Restricted Python runner
+  pipeline.py           End-to-end processing, scoring, verification
+  report_generator.py   TXT / JSON / PDF reports
+  ml_model.py           Secondary ML risk classifier
+templates/ static/      Web interface
+tests/                  Unit tests, labelled benchmark programs
+utils/stats_store.py    Dashboard statistics
+```
 
----
+## Tests and measured quality
 
-🔐 Security Considerations
+```bat
+python -m unittest discover -s tests -t .
+python -m tests.run_benchmark
+```
 
-Warning: Executing untrusted source code can be dangerous.
+The labelled test suite contains **83 programs in 12 languages**
+(29 correct programs that must not be flagged). Rule engine only, no compiler:
 
-Before using this application with untrusted code or deploying it publicly, implement a properly isolated execution environment with restricted permissions, resource limits, and appropriate timeouts.
+| Metric | Result |
+|--------|--------|
+| Precision | 100.0% |
+| Recall | 100.0% |
+| Correct programs wrongly flagged | 0 of 29 |
+| Syntax errors repaired and verified | 100.0% |
 
-Do not rely on static analysis alone to guarantee that code is secure.
+**Please read this honestly:** these programs were written together with the
+rules, so the numbers are a *regression suite*, not an independent
+evaluation. They show that the engine does what it claims on those
+situations; real-world code will contain cases that are not covered.
 
----
+### Machine-learning component
 
-⚠️ Current Limitations
+A small TF-IDF + logistic-regression model gives a secondary "risk
+estimate" for Python code. It is trained on template-generated snippets and
+validated by holding out whole templates (folds split by template (unseen templates)):
+accuracy 64%, precision 69%,
+recall 57% on **unseen templates**. That is modest, which
+is why the rule engine is the primary detector and the model is only shown
+as extra information.
 
-- Static analysis only detects implemented patterns.
-- Automatic fixes are limited to supported corrections.
-- Successful execution does not guarantee bug-free code.
-- Verification covers only the checks implemented by the application.
-- Large-file performance and multi-language support require separate testing.
+## Limitations
 
----
+* The analysis is **rule based**. It finds the problems listed above, not
+  every possible bug. No tool can promise that.
+* Without a compiler, syntax checking for non-Python languages uses
+  heuristics (they can miss unusual code or, rarely, flag valid code).
+  With gcc/node/javac installed the compiler decides.
+* Auto-fix covers mechanical problems. Logic errors are not repaired.
+* Only Python is executed. The sandbox (blocked imports and calls, separate
+  process, time/memory limits) is a safety net for a study project, **not a
+  security boundary**. Run unknown code in a container or VM.
+* Type checking, dependency resolution and multi-file projects are out of
+  scope: each file is analysed on its own.
 
-🔮 Future Enhancements
+## Author
 
-- Expanded bug detection and language support
-- More comprehensive automated tests
-- Secure sandboxed code execution
-- Improved debugging explanations
-- Detailed reports and analysis history
-- Continuous integration and deployment
+Yashaswini C D — GitHub: [@yashaswinicd](https://github.com/yashaswinicd)
 
----
+Repository: [AI-Powered-Intelligent-Code-Review-and-Bug-Detection-System](https://github.com/yashaswinicd/AI-Powered-Intelligent-Code-Review-and-Bug-Detection-System)
 
-👩‍💻 Author
+## License
 
-Yashaswini C D
-
-GitHub: "@yashaswinicd" (https://github.com/yashaswinicd)
-
-Project Repository: "AI-Powered Intelligent Code Review and Bug Detection System" (https://github.com/yashaswinicd/AI-Powered-Intelligent-Code-Review-and-Bug-Detection-System)
-
----
-
-📄 License
-
-Check the repository's existing license before redistributing this project. If you intend to publish it under the MIT License, include a valid "LICENSE" file in the repository.
+MIT, see `LICENSE`.

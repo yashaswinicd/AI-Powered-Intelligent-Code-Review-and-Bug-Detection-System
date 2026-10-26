@@ -1,144 +1,33 @@
-"""
-Application configuration settings
-for the AI-Powered Intelligent Code Review,
-Bug Detection, Debugging and Auto-Fix System.
-"""
+"""Application settings for the AI Code Review & Auto-Fix System."""
 
 import os
 
+from src.language_support import ALLOWED_EXTENSIONS as _EXTENSIONS
 
-# =============================
-# Flask Configuration
-# =============================
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-SECRET_KEY = os.getenv(
-    "SECRET_KEY",
-    "dev-secret-key-change-in-production"
-)
+# --- Flask ---------------------------------------------------------------
+SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
+DEBUG = os.getenv("FLASK_DEBUG", "False").lower() == "true"
+HOST = os.getenv("FLASK_HOST", "127.0.0.1")
+PORT = int(os.getenv("FLASK_PORT", "5000"))
 
-DEBUG = os.getenv(
-    "FLASK_DEBUG",
-    "True"
-).lower() == "true"
-
-HOST = os.getenv(
-    "FLASK_HOST",
-    "127.0.0.1"
-)
-
-PORT = int(
-    os.getenv(
-        "FLASK_PORT",
-        "5000"
-    )
-)
-
-
-# =============================
-# File Upload Configuration
-# =============================
-
-UPLOAD_DIR = os.getenv(
-    "UPLOAD_FOLDER",
-    os.path.join(
-        "uploads",
-        "code_files"
-    )
-)
-
-ALLOWED_EXTENSIONS = {
-    "py",
-    "js",
-    "java",
-    "cpp",
-    "c",
-    "ts",
-    "jsx",
-    "tsx"
-}
-
-
-# =============================
-# Code Input Limits
-# =============================
-
-MAX_CODE_LINES = 10000
-
+# --- Input limits ---------------------------------------------------------
+ALLOWED_EXTENSIONS = {ext.lstrip(".") for ext in _EXTENSIONS}
+MAX_CODE_LINES = int(os.getenv("MAX_CODE_LINES", "50000"))
 MAX_FILE_SIZE = 5 * 1024 * 1024
 
+# --- Output folders (absolute, so the app works from any directory) ------
+OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
+REPORTS_DIR = os.path.join(OUTPUT_DIR, "reports")
+STATS_PATH = os.path.join(OUTPUT_DIR, "stats.json")
+BENCHMARK_PATH = os.path.join(OUTPUT_DIR, "benchmark.json")
 
-# =============================
-# Output Configuration
-# =============================
-
-OUTPUT_FOLDER = os.getenv(
-    "OUTPUT_FOLDER",
-    os.path.join(
-        "outputs",
-        "reports"
-    )
-)
-
-# Used by report_generator.py
-REPORTS_DIR = OUTPUT_FOLDER
-
-
-# =============================
-# Model Configuration
-# =============================
-
-MODEL_DIR = "models"
-
-MODEL_PATH = os.path.join(
-    MODEL_DIR,
-    "code_review_model.pkl"
-)
-
-VECTORIZER_PATH = os.path.join(
-    MODEL_DIR,
-    "vectorizer.pkl"
-)
-
-METRICS_PATH = os.path.join(
-    MODEL_DIR,
-    "model_metrics.json"
-)
-
-
-# =============================
-# Machine Learning Configuration
-# =============================
-
-TEST_SIZE = 0.2
-
+# --- Machine learning -----------------------------------------------------
+MODEL_DIR = os.path.join(BASE_DIR, "models")
+MODEL_PATH = os.path.join(MODEL_DIR, "code_review_model.pkl")
+METRICS_PATH = os.path.join(MODEL_DIR, "model_metrics.json")
 RANDOM_STATE = 42
 
-MAX_FEATURES = 5000
-
-
-# =============================
-# Supported Languages
-# =============================
-
-SUPPORTED_LANGUAGES = {
-    "python": [".py"],
-    "javascript": [".js", ".jsx"],
-    "typescript": [".ts", ".tsx"],
-    "java": [".java"],
-    "cpp": [".cpp"],
-    "c": [".c"]
-}
-
-
-# =============================
-# Analysis Configuration
-# =============================
-
-BUG_THRESHOLD = 0.5
-
-SEVERITY_LEVELS = {
-    "critical": 4,
-    "high": 3,
-    "medium": 2,
-    "low": 1
-}
+# --- Scoring ----------------------------------------------------------------
+SEVERITY_LEVELS = {"critical": 4, "high": 3, "medium": 2, "low": 1}
