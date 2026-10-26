@@ -1,8 +1,10 @@
-"""Flask web application: AI Code Review, Bug Detection and Auto-Fix."""
+﻿"""Flask web application: AI Code Review, Bug Detection and Auto-Fix."""
 
 import json
 import logging
 import os
+import threading
+import webbrowser
 
 from flask import (Flask, Response, jsonify, render_template, request)
 
@@ -162,4 +164,10 @@ def not_found(_):
 
 
 if __name__ == "__main__":
+    # Open the browser one second after the server starts.
+    # Skipped in debug mode so it does not open twice on reload.
+    if not DEBUG:
+        threading.Timer(
+            1.0, lambda: webbrowser.open(f"http://{HOST}:{PORT}/")
+        ).start()
     app.run(host=HOST, port=PORT, debug=DEBUG)
