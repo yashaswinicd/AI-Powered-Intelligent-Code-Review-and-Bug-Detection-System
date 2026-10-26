@@ -101,7 +101,7 @@ input[type=file]{display:none}
 <div class="review-container">
     <section class="hero">
         <h1><i class="fas fa-microchip"></i> Review &amp; Auto-Fix</h1>
-        <p>Detect &bull; Locate &bull; Fix &bull; Verify &mdash; {{ languages|length }} languages, up to {{ "{:,}".format(max_lines) }} lines</p>
+        <p>Detect &bull; Locate &bull; Fix &bull; Verify &mdash; 5 languages, up to {{ "{:,}".format(max_lines) }} lines</p>
     </section>
 
     <div class="card">
@@ -124,7 +124,7 @@ input[type=file]{display:none}
 
         <div id="pasteBox">
             <label class="input-label" for="code">Your code</label>
-            <textarea id="code" spellcheck="false" placeholder="Paste code in any supported language here. It does not matter how long it is."></textarea>
+            <textarea id="code" spellcheck="false" placeholder="Paste your code here (Python, Java, C, C++ or JavaScript)."></textarea>
             <label class="input-label" for="stdinInput"><i class="fas fa-keyboard"></i> Test input (optional, Python only)</label>
             <textarea id="stdinInput" spellcheck="false" placeholder="One line per input() call"></textarea>
         </div>

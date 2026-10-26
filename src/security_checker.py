@@ -21,11 +21,8 @@ _SQL_DYNAMIC = [
     re.compile(r"""["'][^"']*["']\s*\+\s*[A-Za-z_(]"""),  # "..." + var
     re.compile(r"""\+\s*[A-Za-z_]\w*\s*\+\s*["']"""),   # + var + "..."
     re.compile(r"""["'][^"']*["']\s*%\s*[A-Za-z_(]"""),  # "..." % var
-    re.compile(r"""["'][^"']*["']\s*\.\s*[A-Za-z_$]"""),  # PHP "..." . $x
     re.compile(r"\.format\s*\("),
-    re.compile(r"""["'][^"']*\$\w+[^"']*["']"""),       # PHP "$id"
     re.compile(r"\$\{"),                                # JS template
-    re.compile(r'\$"[^"]*\{'),                          # C# interpolation
     re.compile(r"%[sd]\b"),                             # printf style
     re.compile(r"\bString\s*\.\s*format\s*\(|\bSprintf\s*\("),
 ]
@@ -155,11 +152,10 @@ class SecurityChecker:
         patterns = [
             (r"(?<![\w.])exec\s*\(", "Dynamic code execution via exec().",
              "Avoid executing dynamically built code.", "high",
-             {"python", "php"}),
+             {"python"}),
             (r"(?<![\w.])eval\s*\(", "Code injection risk via eval().",
              "Avoid eval(); parse the data explicitly.", "high",
-             {"javascript", "typescript", "php", "c", "cpp", "java",
-              "csharp", "go", "rust", "kotlin", "swift"}),
+             {"javascript", "c", "cpp", "java"}),
             (r"\bos\s*\.\s*system\s*\(", "Shell command injection via "
              "os.system().", "Use subprocess with an argument list.",
              "high", {"python"}),

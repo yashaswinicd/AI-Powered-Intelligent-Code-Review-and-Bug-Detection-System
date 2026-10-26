@@ -28,8 +28,7 @@ class LanguageDetectionTests(unittest.TestCase):
             "java": "public class A { System.out.println(1); }",
             "cpp": "#include <iostream>\nint main(){ std::cout << 1; }",
             "c": "#include <stdio.h>\nint main(){ printf(\"x\"); }",
-            "go": "package main\nfunc main() { fmt.Println(1) }",
-            "rust": "fn main() { let mut x = 1; println!(\"{}\", x); }",
+            "javascript": "const a = 1;\nconsole.log(a);",
         }
         for expected, code in samples.items():
             self.assertEqual(detect_language(code)[0], expected, expected)

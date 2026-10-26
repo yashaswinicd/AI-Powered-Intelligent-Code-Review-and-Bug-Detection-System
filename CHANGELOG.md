@@ -1,7 +1,7 @@
 # Changelog
 
 ## 2.0.0 — Multi-language auto-fix
-- Any of 12 languages, up to 50,000 lines; language auto-detection.
+- Python, Java, C, C++ and JavaScript, up to 50,000 lines; language auto-detection.
 - Exact line/column for every issue; problem lines highlighted in the UI.
 - One analyse → fix → verify loop shared by all languages.
 - Real compilers (gcc, g++, node, javac) used for verification when installed.

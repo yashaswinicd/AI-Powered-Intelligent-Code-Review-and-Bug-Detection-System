@@ -1,6 +1,6 @@
 # AI-Powered Intelligent Code Review & Bug Detection System
 
-**Detect · Locate · Fix · Verify** — for 12 programming languages.
+**Detect · Locate · Fix · Verify** — for Python, Java, C, C++ and JavaScript.
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Flask](https://img.shields.io/badge/Flask-Web%20Framework-green)
@@ -27,7 +27,7 @@ together with a diff and a downloadable report.
 
 ### Supported languages
 
-Python, Java, C, C++, C#, JavaScript, TypeScript, Go, PHP, Rust, Kotlin, Swift.
+Python, Java, C, C++ and JavaScript.
 
 | Check | Python | Other languages |
 |-------|:-----:|:---------------:|
@@ -111,14 +111,14 @@ python -m unittest discover -s tests -t .
 python -m tests.run_benchmark
 ```
 
-The labelled test suite contains **83 programs in 12 languages**
-(29 correct programs that must not be flagged). Rule engine only, no compiler:
+The labelled test suite contains **67 programs in 5 languages**
+(22 correct programs that must not be flagged). Rule engine only, no compiler:
 
 | Metric | Result |
 |--------|--------|
 | Precision | 100.0% |
 | Recall | 100.0% |
-| Correct programs wrongly flagged | 0 of 29 |
+| Correct programs wrongly flagged | 0 of 22 |
 | Syntax errors repaired and verified | 100.0% |
 
 **Please read this honestly:** these programs were written together with the
@@ -129,7 +129,7 @@ situations; real-world code will contain cases that are not covered.
 ### Machine-learning component
 
 A small TF-IDF + logistic-regression model gives a secondary "risk
-estimate" for Python code. It is trained on template-generated snippets and
+estimate" for Python, Java, C, C++ and JavaScript. It is trained on template-generated snippets and
 validated by holding out whole templates (folds split by template (unseen templates)):
 accuracy 64%, precision 69%,
 recall 57% on **unseen templates**. That is modest, which

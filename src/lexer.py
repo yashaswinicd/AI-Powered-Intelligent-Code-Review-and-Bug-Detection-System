@@ -99,8 +99,8 @@ def scan(code, lang):
     line_markers = cfg["line"]
     block = cfg["block"]
     quotes = cfg["quotes"]
-    hash_directives = lang in ("c", "cpp", "csharp")
-    is_js = lang in ("javascript", "typescript")
+    hash_directives = lang in ("c", "cpp")
+    is_js = lang == "javascript"
 
     i = 0
     at_line_start = True
@@ -164,7 +164,7 @@ def scan(code, lang):
         if matched:
             continue
 
-        # Regular-expression literals in JavaScript / TypeScript
+        # Regular-expression literals in JavaScript
         if is_js and ch == "/":
             prev_char, prev_word = _previous_significant(code_only, i)
             if (prev_char == "" or prev_char in _REGEX_PREV_CHARS
@@ -225,40 +225,20 @@ def scan(code, lang):
 
         # Ordinary string / character literals
         if ch in quotes:
-            # Rust lifetimes ('a) and C++ digit separators (1'000)
+            # C++ digit separators (1'000)
             if ch == "'":
                 nxt = code[i + 1] if i + 1 < n else ""
-                if lang == "rust" and (nxt.isalpha() or nxt == "_"):
-                    k = i + 1
-                    while k < n and (code[k].isalnum() or code[k] == "_"):
-                        k += 1
-                    if k >= n or code[k] != "'":
-                        i += 1
-                        continue
                 if lang in ("cpp", "c") and i > 0 and \
                         code[i - 1].isalnum() and nxt.isalnum():
                     i += 1
                     continue
 
-            verbatim = (lang == "csharp" and ch == '"' and i > 0
-                        and code[i - 1] == "@") or \
-                       (lang == "go" and ch == "`")
-            multiline = ch == "`" or verbatim
+            multiline = ch == "`"
             j = i + 1
             closed = False
             while j < n:
                 c = code[j]
-                if verbatim and ch == '"':
-                    if c == '"':
-                        if j + 1 < n and code[j + 1] == '"':
-                            j += 2
-                            continue
-                        closed = True
-                        break
-                    j += 1
-                    continue
-                if c == "\\" and ch != "`" or (c == "\\" and lang != "go"
-                                               and ch == "`"):
+                if c == "\\":
                     j += 2
                     continue
                 if c == ch:

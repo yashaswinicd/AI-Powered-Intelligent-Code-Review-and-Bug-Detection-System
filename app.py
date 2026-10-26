@@ -1,4 +1,4 @@
-﻿"""Flask web application: AI Code Review, Bug Detection and Auto-Fix."""
+"""Flask web application: AI Code Review, Bug Detection and Auto-Fix."""
 
 import json
 import logging

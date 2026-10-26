@@ -236,47 +236,4 @@ CASES = [
     ("js innerHTML", "javascript",
      'const el = document.getElementById("a");\nel.innerHTML = location.hash;\n',
      ["XSS Vulnerability"]),
-
-    # ------------------------------------------------------------ others
-    ("csharp clean", "csharp",
-     'using System;\n\nclass Program\n{\n    static void Main()\n    {\n'
-     '        int x = 5;\n        Console.WriteLine(x);\n    }\n}\n', []),
-    ("csharp missing semicolon", "csharp",
-     'using System;\n\nclass Program\n{\n    static void Main()\n    {\n'
-     '        int x = 5\n        Console.WriteLine(x);\n    }\n}\n', [SYN]),
-    ("csharp hardcoded password", "csharp",
-     'using System;\n\nclass Program\n{\n    static void Main()\n    {\n'
-     '        string password = "admin123";\n        Console.WriteLine(password.Length);\n'
-     '    }\n}\n', ["Hardcoded Credential"]),
-    ("go clean", "go",
-     'package main\n\nimport "fmt"\n\nfunc add(a int, b int) int {\n'
-     '\treturn a + b\n}\n\nfunc main() {\n\tx := add(1, 2)\n\tfmt.Println(x)\n}\n', []),
-    ("go missing brace", "go",
-     'package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("hi")\n', [SYN]),
-    ("php clean", "php",
-     '<?php\n$name = "Asha";\necho "Hello " . $name;\nfunction add($a, $b) {\n'
-     '    return $a + $b;\n}\necho add(1, 2);\n', []),
-    ("php missing semicolon", "php",
-     '<?php\n$name = "Asha"\necho "Hello";\n', [SYN]),
-    ("php hardcoded password", "php",
-     '<?php\n$password = "admin123";\necho strlen($password);\n',
-     ["Hardcoded Credential"]),
-    ("rust clean", "rust",
-     'fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n\nfn main() {\n'
-     '    let x = add(1, 2);\n    println!("{}", x);\n}\n', []),
-    ("rust missing semicolon", "rust",
-     'fn main() {\n    let x = 5\n    println!("{}", x);\n}\n', [SYN]),
-    ("kotlin clean", "kotlin",
-     'fun main() {\n    val x = 5\n    println(x)\n}\n', []),
-    ("kotlin missing brace", "kotlin",
-     'fun main() {\n    val x = 5\n    println(x)\n', [SYN]),
-    ("swift clean", "swift",
-     'import Foundation\n\nlet x = 5\nfunc show(_ n: Int) {\n    print(n)\n}\nshow(x)\n', []),
-    ("swift missing brace", "swift",
-     'import Foundation\n\nfunc show(_ n: Int) {\n    print(n)\n', [SYN]),
-    ("typescript clean", "typescript",
-     'interface User {\n  name: string;\n}\nconst u: User = { name: "A" };\n'
-     'console.log(u.name);\n', []),
-    ("typescript missing brace", "typescript",
-     'function f(a: number): number {\n  return a;\n', [SYN]),
 ]

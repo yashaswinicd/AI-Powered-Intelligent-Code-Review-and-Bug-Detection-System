@@ -1,8 +1,8 @@
 """Language-independent static analysis.
 
 The checks here work on the scanned (string/comment-masked) source from
-``src.lexer``, so they behave the same way for Java, C, C++, C#,
-JavaScript, TypeScript, Go, PHP, Rust, Kotlin and Swift. Python has its
+``src.lexer``, so they behave the same way for Java, C, C++
+and JavaScript. Python has its
 own AST based engine (``bug_detector``) but reuses the checks in this
 module for secrets and syntax repairs.
 
@@ -332,8 +332,6 @@ def check_semicolons(sc, lang):
             continue
         if s.endswith("\\") or s.startswith(("<?", "?>", "@", "#")):
             continue
-        if lang == "csharp" and s.startswith("["):
-            continue
 
         stmt = s
         while stmt.startswith("}"):
@@ -387,13 +385,6 @@ def check_semicolons(sc, lang):
             or (_INCDEC.match(stmt) and stmt.endswith(("++", "--")))
             or (_INCDEC.match(stmt) and stmt.startswith(("++", "--"))))
 
-        if lang == "rust":
-            looks_like_statement = bool(
-                re.match(r"^(let\b|return\b|break\b|continue\b)", stmt)
-                or re.match(r"^[\w:]+!\s*\(", stmt))
-            if nxt.startswith("}") and not stmt.startswith("let "):
-                looks_like_statement = False
-
         if not looks_like_statement:
             continue
 
@@ -428,7 +419,7 @@ def check_semicolons(sc, lang):
             is_data = stack.pop() if stack else True
             segment = text[stmt_start:idx]
             body = segment.strip()
-            if (not is_data and body and lang != "rust"
+            if (not is_data and body
                     and "\n" not in segment
                     and sc.line_of(idx) not in flagged_lines
                     and (body[-1].isalnum() or body[-1] in "_)]\"'")
@@ -486,20 +477,14 @@ def _secret_replacement(lang, env_name, snippet_before):
     """(replacement expression, ensure-line) or None if no safe fix."""
     if lang == "python":
         return f'os.environ.get("{env_name}", "")', "import os"
-    if lang in ("javascript", "typescript"):
+    if lang == "javascript":
         return f"process.env.{env_name}", None
     if lang == "java":
         return f'System.getenv("{env_name}")', None
-    if lang == "kotlin":
-        return f'(System.getenv("{env_name}") ?: "")', None
     if lang == "c":
         return f'getenv("{env_name}")', "#include <stdlib.h>"
     if lang == "cpp":
         return f'std::getenv("{env_name}")', "#include <cstdlib>"
-    if lang == "csharp":
-        return f'System.Environment.GetEnvironmentVariable("{env_name}")', None
-    if lang == "php":
-        return f"getenv('{env_name}')", None
     return None
 
 
@@ -549,7 +534,7 @@ def check_secrets(sc, lang):
                         "secrets manager.")
                 if not m.groupdict().get("arr"):
                     risky = ("document." in sc.code or "window." in sc.code)
-                    if not (lang in ("javascript", "typescript") and risky):
+                    if not (lang == "javascript" and risky):
                         rep = _secret_replacement(
                             lang, _env_name(short), nc[:m.start()])
                         if rep:
@@ -592,20 +577,13 @@ def _empty_catch_statement(lang, args):
             var = parts[-1].strip("&*")
     if lang == "java":
         return f'System.err.println("Error: " + {var or "e"}.getMessage());'
-    if lang in ("javascript", "typescript"):
+    if lang == "javascript":
         return f"console.error({var or 'error'});"
-    if lang == "csharp":
-        return (f"System.Console.Error.WriteLine({var or 'ex'}.Message);"
-                if var else None)
-    if lang == "php":
-        return f"error_log({var or '$e'}->getMessage());" if var else None
-    if lang == "kotlin":
-        return f"System.err.println({var or 'e'}.message)"
     return None
 
 
 def check_empty_catch(sc, lang):
-    if lang in ("python", "go", "rust", "swift"):
+    if lang == "python":
         return []
     issues = []
     text = sc.code_only
@@ -626,7 +604,7 @@ def check_empty_catch(sc, lang):
         if stmt:
             edit = {"start": open_idx + 1, "end": close_idx,
                     "text": f"\n{indent}    {stmt}\n{indent}"}
-        if lang in ("javascript", "typescript") and args is None:
+        if lang == "javascript" and args is None:
             edit = {"start": m.start(), "end": close_idx + 1,
                     "text": f"catch (error) {{\n{indent}    "
                             f"console.error(error);\n{indent}}}"}
@@ -655,8 +633,7 @@ _ZERO_ASSIGN = re.compile(
     r"(?P<n>[A-Za-z_]\w*)\s*=\s*0(?:\.0*)?\s*;")
 
 
-_TERNARY_LANGS = {"c", "cpp", "java", "csharp", "javascript",
-                  "typescript", "php"}
+_TERNARY_LANGS = {"c", "cpp", "java", "javascript"}
 
 
 def check_division_by_zero(sc, lang):
@@ -716,8 +693,7 @@ def check_division_by_zero(sc, lang):
                 + re.escape(name) + r"\b(?!\s*[\w(.])", line)
             if simple and lang in _TERNARY_LANGS and \
                     simple.group("l") not in ("return",):
-                strict = "!==" if lang in ("javascript", "typescript") \
-                    else "!="
+                strict = "!==" if lang == "javascript" else "!="
                 base = sc.line_start(j + 1)
                 edit = {"start": base + simple.start("l"),
                         "end": base + simple.end(),
@@ -752,7 +728,7 @@ def check_condition_assignment(sc, lang):
 
 
 def check_js_equality(sc, lang):
-    if lang not in ("javascript", "typescript"):
+    if lang != "javascript":
         return []
     issues = []
     for m in re.finditer(r"(?<![=!<>])(==|!=)(?!=)", sc.code_only):
@@ -834,7 +810,7 @@ _DANGEROUS = [
      "Unsafe string function",
      "This function does not check the size of the destination buffer.",
      "Use strncpy/strncat/snprintf and pass the buffer size."),
-    ({"c", "cpp", "php"}, re.compile(r"(?<![\w.>:$])system\s*\("), "high",
+    ({"c", "cpp"}, re.compile(r"(?<![\w.>:$])system\s*\("), "high",
      "Command execution via system()",
      "system() runs a shell command; unchecked input allows injection.",
      "Avoid the shell, or validate every part of the command."),
@@ -847,20 +823,7 @@ _DANGEROUS = [
      "Unsafe deserialization",
      "Deserializing untrusted data can execute attacker-chosen code.",
      "Validate the source or use a safe format such as JSON."),
-    ({"csharp"}, re.compile(r"\bBinaryFormatter\b"), "high",
-     "Unsafe deserialization (BinaryFormatter)",
-     "BinaryFormatter is insecure and obsolete.",
-     "Use System.Text.Json or another safe serializer."),
-    ({"csharp"}, re.compile(r"\bProcess\s*\.\s*Start\s*\("), "medium",
-     "Process execution via Process.Start()",
-     "Starting processes with user-controlled input is dangerous.",
-     "Validate arguments and avoid shell execution."),
-    ({"php"}, re.compile(r"(?<![\w.>:$])(shell_exec|passthru|proc_open|"
-                         r"popen|mysql_query)\s*\("), "high",
-     "Dangerous PHP function",
-     "This function executes commands or uses the removed mysql API.",
-     "Use escapeshellarg/PDO prepared statements, or avoid it."),
-    ({"javascript", "typescript"},
+    ({"javascript"},
      re.compile(r"\bnew\s+Function\s*\(|\bchild_process\b"), "high",
      "Dynamic code or command execution",
      "Building code or commands from strings allows injection.",
@@ -895,8 +858,7 @@ _JUMP = re.compile(r"^(return\b|break\s*;|continue\s*;|throw\b|goto\b)")
 
 
 def check_unreachable(sc, lang):
-    if lang not in ("c", "cpp", "java", "csharp", "javascript",
-                    "typescript", "php", "kotlin", "go"):
+    if lang not in ("c", "cpp", "java", "javascript"):
         return []
     issues = []
     lines = sc.code_only.split("\n")
@@ -910,8 +872,7 @@ def check_unreachable(sc, lang):
 
     for i, raw in enumerate(lines):
         s = raw.strip()
-        if not s.endswith(";") and lang not in ("go", "kotlin",
-                                                "javascript", "typescript"):
+        if not s.endswith(";") and lang != "javascript":
             continue
         if not _JUMP.match(s) or ends[i] != 0 or starts[i] != 0:
             continue
